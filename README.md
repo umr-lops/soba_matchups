@@ -35,6 +35,28 @@ not filtered. `sar_cache_dir` stores reusable API metadata; `output_dir` must be
 Outputs: `matchups.csv`, `pair_diagnostics.csv`, `sar_metadata.json` and `manifest.json`.
 These are SAFE/reference-cell matchups, not enriched co-aligned catalogues.
 
+## Apptainer
+
+Build from the repository root:
+
+```sh
+apptainer build soba_matchups.sif apptainer.def
+```
+
+Put your recipe in a writable work directory. Set `reference_root = "/reference"`,
+`sar_cache_dir = "/work/cache/sar"` and `output_dir = "/work/runs/hscat-001"`.
+Use a new output directory for each run.
+
+```sh
+apptainer run --bind /path/to/knmi/satellite/l2b:/reference:ro \
+  --bind /path/to/work:/work soba_matchups.sif validate --recipe /work/hscat.toml
+apptainer run --bind /path/to/knmi/satellite/l2b:/reference:ro \
+  --bind /path/to/work:/work soba_matchups.sif run --recipe /work/hscat.toml
+```
+
+Online runs need Copernicus catalogue access. `offline = true` requires an existing
+complete cache for the same query. Bind the archive's real path if it is a symlink.
+
 ## Checks
 
 ```sh

@@ -1,0 +1,42 @@
+Bootstrap: docker
+From: python:3.12-slim
+
+%files
+    pyproject.toml /opt/soba_matchups/pyproject.toml
+    README.md /opt/soba_matchups/README.md
+    LICENSE /opt/soba_matchups/LICENSE
+    src /opt/soba_matchups/src
+    examples /opt/soba_matchups/examples
+
+%post
+    set -eu
+    python -m pip install --no-cache-dir /opt/soba_matchups
+    python -m pip check
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
+
+%runscript
+    exec soba_matchups "$@"
+
+%test
+    set -eu
+    python -c 'import numpy, xarray, shapely, requests, netCDF4; import soba_matchups.pipeline'
+    soba_matchups --help
+
+%labels
+    org.soba.tool soba_matchups
+    org.soba.source https://github.com/umr-lops/soba_matchups
+
+%help
+    Build from the repository root:
+        apptainer build soba_matchups.sif apptainer.def
+
+    Bind the archive read-only and a recipe/cache/output workspace read-write:
+        apptainer run --bind /path/to/knmi/satellite/l2b:/reference:ro \
+            --bind /path/to/work:/work soba_matchups.sif run --recipe /work/hscat.toml
+
+    Set reference_root = "/reference" in the recipe, and put sar_cache_dir and
+    output_dir under /work. The output directory must be new. Online runs need
+    access to the Copernicus catalogue; offline runs require a matching cache.

@@ -1,0 +1,13 @@
+# Pins reflect the verified environment; update with conda env update -f environment.yml.
+# Dependabot does not update conda pins; keep shared tool pins aligned with pyproject.toml.
+name: soba_matchups
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12.15
+  - pip=26.2.2
+  - pre-commit=4.7.0
+  - ruff=0.17.0
+  - pytest=9.1.1
+  - python-build=1.6.1
+  - hatchling=1.32.4

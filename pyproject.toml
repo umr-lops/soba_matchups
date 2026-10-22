@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "soba_matchups"
+dynamic = ["version"]
+description = "Sentinel-1 WV matchups with scatterometer, SWOT and altimeter references"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "pre-commit==4.7.0", "ruff==0.17.0", "build==1.6.1"]
+
+[project.urls]
+Repository = "https://github.com/umr-lops/soba_matchups"
+
+[tool.hatch.version]
+path = "src/soba_matchups/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/soba_matchups"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml", "environment.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["assets", "vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]

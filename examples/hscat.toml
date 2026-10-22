@@ -1,0 +1,13 @@
+scat = "hscat"
+met = "hy-2b"
+resolution = "25km"
+reference_version = "2202"
+
+reference_root = "/path/to/knmi/satellite/l2b"
+start_date = "2020-01-10"
+stop_date = "2020-01-11"  # Exclusive; selects reference-granule start days.
+sar_missions = ["S1A", "S1B"]
+time_tolerance_minutes = 60  # Explicit pilot setting, not a calibrated threshold.
+sar_cache_dir = "../cache/sar"
+output_dir = "../runs/hscat-example"
+offline = false

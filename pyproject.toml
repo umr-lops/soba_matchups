@@ -10,7 +10,11 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["numpy>=1.26,<3", "xarray>=2024.1", "shapely>=2",
+                "requests>=2.32", "netCDF4>=1.7,<2"]
+
+[project.scripts]
+soba_matchups = "soba_matchups.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "pre-commit==4.7.0", "ruff==0.17.0", "build==1.6.1"]
@@ -25,7 +29,7 @@ path = "src/soba_matchups/__init__.py"
 packages = ["src/soba_matchups"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml", "environment.yml"]
+include = ["src", "tests", "examples", "README.md", "LICENSE", "pyproject.toml", "environment.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

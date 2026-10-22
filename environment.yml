@@ -11,3 +11,8 @@ dependencies:
   - pytest=9.1.1
   - python-build=1.6.1
   - hatchling=1.32.4
+  - numpy=2.4.6
+  - xarray=2026.9.0
+  - shapely=2.2.0
+  - requests=2.34.2
+  - netcdf4=1.7.4

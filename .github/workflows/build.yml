@@ -24,6 +24,7 @@ jobs:
         run: >-
           python -I -c "import soba_matchups; from importlib.metadata import version;
           assert soba_matchups.__version__ == version('soba_matchups')"
+      - run: soba_matchups --help
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dist

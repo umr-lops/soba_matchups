@@ -183,3 +183,14 @@ def test_http_failure_is_not_an_empty_catalogue(tmp_path, monkeypatch):
     calls = mock_pages(monkeypatch, [503, {"value": [], "@odata.count": 0}])
     products, provenance = sar_metadata.discover(START, END, ("S1A",), tmp_path)
     assert products == [] and provenance["complete"] is True and len(calls) == 2
+
+
+def test_safe_fields_are_extracted_not_hardcoded():
+    from soba_matchups.sar_metadata import decode_safe_name
+
+    name = "S1A_WV_OCN__2SSV_20200110T120000_20200110T123000_000001_000001_0001.SAFE"
+    assert decode_safe_name(name) == {"polarization": "VV", "producttype": "OCN"}
+    assert decode_safe_name(name.replace("2SSV", "2SSH"))["polarization"] == "HH"
+    assert decode_safe_name(name.replace("OCN__2", "SLC__1"))["producttype"] == "SLC"
+    with pytest.raises(ValueError, match="SAFE name"):
+        decode_safe_name(name.replace("2SSV", "2SSX"))

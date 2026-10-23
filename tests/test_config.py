@@ -7,6 +7,7 @@ def test_toml_recipe_preserves_legacy_keys_and_resolves_relative_paths(tmp_path)
     from soba_matchups.config import load_recipe
 
     (tmp_path / "reference").mkdir()
+    (tmp_path / "land.geojson").write_text("{}")
     recipe = tmp_path / "hscat.toml"
     recipe.write_text("""scat = "hscat"
 met = "hy-2b"
@@ -19,12 +20,14 @@ sar_missions = ["S1A", "S1B"]
 time_tolerance_minutes = 60
 sar_cache_dir = "cache"
 output_dir = "run"
+land_mask = "land.geojson"
 """)
     config = load_recipe(recipe)
     assert (config.scat, config.met, config.resolution) == ("hscat", "hy-2b", "25km")
     assert config.reference_root == tmp_path / "reference"
     assert config.output_dir == tmp_path / "run"
     assert config.offline is False
+    assert config.land_mask_source == "local file; origin not asserted"
     recipe.write_text(recipe.read_text() + 'satellite = "hy-2b"\n')
     with pytest.raises(ValueError, match="satellite"):
         load_recipe(recipe)

@@ -1,17 +1,19 @@
 """Publish a complete run directory only after writing and reading its artifacts."""
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 import tempfile
-
-from soba_matchups.manifest import file_identity
 
 MATCH_FIELDS = [
     "record_id",
     "safe_id",
     "safe_name",
     "mission",
+    "polarization",
+    "producttype",
+    "sea_percent",
     "safe_start_utc",
     "safe_end_utc",
     "reference_file",
@@ -27,6 +29,15 @@ MATCH_FIELDS = [
     "ice_probability",
 ]
 PAIR_FIELDS = ["safe_id", "reference_file", "matched_cells"]
+
+
+def file_identity(path):
+    path = Path(path).resolve()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return {"path": str(path), "sha256": digest.hexdigest(), "bytes": path.stat().st_size}
 
 
 def publish(output_dir, rows, diagnostics, products, manifest):

@@ -75,6 +75,11 @@ output_dir = "run"
     with (tmp_path / "run/matchups.csv").open() as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 1 and rows[0]["quality_flag"] == "2048.0"
+    assert len(rows[0]["record_id"]) == 64
+    assert not {"reference_sha256", "matching_policy"} & rows[0].keys()
+    manifest = json.loads((tmp_path / "run/manifest.json").read_text())
+    assert len(manifest["reference_inputs"][0]["sha256"]) == 64
+    assert manifest["rules"]["policy"] == "scat_safe_v1"
     assert rows[0]["ref_row_0based"] == rows[0]["ref_cell_0based"] == "0"
     assert json.loads((tmp_path / "run/manifest.json").read_text())["status"] == "success"
     assert main(["run", "--recipe", str(recipe)]) == 2

@@ -16,7 +16,6 @@ MATCH_FIELDS = [
     "safe_end_utc",
     "reference_file",
     "reference_path",
-    "reference_sha256",
     "ref_row_0based",
     "ref_cell_0based",
     "ref_time_utc",
@@ -26,7 +25,6 @@ MATCH_FIELDS = [
     "wind_direction_to",
     "quality_flag",
     "ice_probability",
-    "matching_policy",
 ]
 PAIR_FIELDS = ["safe_id", "reference_file", "matched_cells"]
 

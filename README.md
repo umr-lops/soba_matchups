@@ -34,6 +34,7 @@ not filtered. `sar_cache_dir` stores reusable API metadata; `output_dir` must be
 
 Outputs: `matchups.csv`, `pair_diagnostics.csv`, `sar_metadata.json` and `manifest.json`.
 These are SAFE/reference-cell matchups, not enriched co-aligned catalogues.
+`record_id` identifies each pair; input checksums and matching rules stay in the manifest.
 
 ## Apptainer
 

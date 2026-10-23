@@ -91,7 +91,6 @@ def run(recipe):
                         "safe_end_utc": product["ContentDate"]["End"],
                         "reference_file": ref["path"].name,
                         "reference_path": str(ref["path"]),
-                        "reference_sha256": ref["identity"]["sha256"],
                         "ref_row_0based": row_index,
                         "ref_cell_0based": cell_index,
                         "ref_time_utc": str(ref["time"][i].astype("datetime64[ns]")) + "Z",
@@ -101,7 +100,6 @@ def run(recipe):
                         "wind_direction_to": float(ref["wind_dir"][i]),
                         "quality_flag": number(ref["wvc_quality_flag"][i]),
                         "ice_probability": number(ref["ice_prob"][i]),
-                        "matching_policy": "scat_safe_v1",
                     }
                 )
     for ref in refs:

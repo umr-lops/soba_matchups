@@ -18,6 +18,22 @@ from shapely.validation import explain_validity
 
 API_URL = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
 
+_PATTERN = re.compile(
+    r"S1[ABCD]_WV_(?P<producttype>OCN|SLC)__"
+    r"(?P<level>[12])[A-Z](?P<pol>SV|SH)_"
+    r"\d{8}T\d{6}_\d{8}T\d{6}_\d{6}_[0-9A-F]{6}_[0-9A-F]{4}\.SAFE"
+)
+
+
+def decode_safe_name(name):
+    match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
+    if match is None or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]:
+        raise ValueError(f"Unsupported Sentinel-1 WV SAFE name: {name!r}")
+    return {
+        "polarization": {"SV": "VV", "SH": "HH"}[match["pol"]],
+        "producttype": match["producttype"],
+    }
+
 
 def _encoded(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()

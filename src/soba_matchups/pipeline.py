@@ -1,4 +1,4 @@
-"""Bounded HSCAT worker: reference coverage -> SAR discovery -> match -> publish."""
+"""HSCAT coverage -> SAR discovery -> SAFE/cell matching -> publication."""
 
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 
 from soba_matchups import __version__
-from soba_matchups.adapters.scat import match_cells, read_reference
-from soba_matchups.manifest import file_identity
-from soba_matchups.output import publish
-from soba_matchups.sar_metadata import discover
+from soba_matchups.adapters import scat
+from soba_matchups.land_fraction import LandMask
+from soba_matchups.output import file_identity, publish
+from soba_matchups.sar_metadata import decode_safe_name, discover
 
 
 def reference_inputs(recipe):
@@ -31,14 +31,12 @@ def reference_inputs(recipe):
             raise ValueError(f"No reference files for requested day: {directory}")
         paths.extend(selected)
         day += timedelta(days=1)
-    if not paths:
-        raise ValueError(f"No reference .nc or .nc.gz files in {recipe.reference_root}")
     if len({p.name for p in paths}) != len(paths):
         raise ValueError("Repeated reference filenames; select one unambiguous product bundle")
     references = []
     for path in paths:
         identity = file_identity(path)
-        ref = read_reference(path, recipe.reference_version)
+        ref = scat.read_reference(path, recipe.reference_version)
         if not recipe.start_date <= ref["granule_start_day"] < recipe.stop_date:
             raise ValueError(f"Granule start day outside requested range: {path}")
         ref["identity"] = identity
@@ -52,6 +50,7 @@ def run(recipe):
             f"Output already exists; choose a fresh directory: {recipe.output_dir}"
         )
     refs = reference_inputs(recipe)
+    land = LandMask(recipe.land_mask)
     delta = timedelta(minutes=recipe.time_tolerance_minutes)
 
     def iso(t):
@@ -68,8 +67,12 @@ def run(recipe):
         return float(x) if np.isfinite(x) else None
 
     for product in products:
+        sar_fields = decode_safe_name(product["Name"])
+        if sar_fields["producttype"] != "OCN":
+            raise ValueError("SAR product type does not match the WV OCN discovery request")
+        sea_percent = None
         for ref in refs:
-            indices = match_cells(product, ref, recipe.time_tolerance_minutes)
+            indices = scat.match_cells(product, ref, recipe.time_tolerance_minutes)
             diagnostics.append(
                 {
                     "safe_id": product["Id"],
@@ -77,6 +80,8 @@ def run(recipe):
                     "matched_cells": len(indices),
                 }
             )
+            if len(indices) and sea_percent is None:
+                sea_percent = land.sea_percent(product["GeoFootprint"])
             for i in indices:
                 flat = int(ref["flat"][i])
                 row_index, cell_index = divmod(flat, ref["columns"])
@@ -87,6 +92,8 @@ def run(recipe):
                         "safe_id": product["Id"],
                         "safe_name": product["Name"],
                         "mission": product["Name"][:3],
+                        **sar_fields,
+                        "sea_percent": sea_percent,
                         "safe_start_utc": product["ContentDate"]["Start"],
                         "safe_end_utc": product["ContentDate"]["End"],
                         "reference_file": ref["path"].name,
@@ -102,12 +109,12 @@ def run(recipe):
                         "ice_probability": number(ref["ice_prob"][i]),
                     }
                 )
+    land.verify_unchanged()
     for ref in refs:
         if file_identity(ref["path"]) != ref["identity"]:
             raise ValueError(f"Input changed during processing: {ref['path']}")
-    identities = [ref["identity"] for ref in refs]
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "success" if rows else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -125,7 +132,13 @@ def run(recipe):
             }
             for ref in refs
         ],
-        "reference_inputs": identities,
+        "reference_inputs": [ref["identity"] for ref in refs],
+        "land_mask": {
+            **land.provenance,
+            "source": recipe.land_mask_source,
+            "footprint_scope": "full SAFE, not individual imagette or reference cell",
+            "used_as_filter": False,
+        },
         "reference_files": len(refs),
         "reference_finite_wind_cells": sum(len(ref["flat"]) for ref in refs),
         "sar_products_processed": len(products),
@@ -141,6 +154,7 @@ def run(recipe):
             "retention": "all finite wind vectors; retain quality/ice flags without filtering",
         },
         "units": {
+            "sea_percent": "percent of full SAFE footprint outside the land mask",
             "wind_speed": "m s-1",
             "wind_direction_to": "degree, flowing toward",
             "ref_lon": "degrees_east, [-180,180)",

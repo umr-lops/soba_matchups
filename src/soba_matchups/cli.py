@@ -1,4 +1,4 @@
-"""Standalone entry point for TOML validation and SAFE-level HSCAT matching."""
+"""Standalone entry point for TOML validation and SAFE-level matching."""
 
 import argparse
 import json

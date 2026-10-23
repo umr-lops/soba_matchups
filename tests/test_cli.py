@@ -40,6 +40,24 @@ def test_cli_runs_real_reader_and_outputs_without_network(tmp_path, monkeypatch)
     ds.wind_speed.attrs["units"] = "m s-1"
     ds.wind_dir.attrs["units"] = "degree"
     ds.to_netcdf(day_dir / "control.nc")
+    land = tmp_path / "land.geojson"
+    land.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"synthetic": True},
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[0, -1], [0.5, -1], [0.5, 2], [0, 2], [0, -1]]],
+                        },
+                    }
+                ],
+            }
+        )
+    )
     recipe = tmp_path / "control.toml"
     recipe.write_text("""scat = "hscat"
 met = "hy-2b"
@@ -52,6 +70,8 @@ sar_missions = ["S1A"]
 time_tolerance_minutes = 60
 sar_cache_dir = "cache"
 output_dir = "run"
+land_mask = "land.geojson"
+land_mask_source = "synthetic unit-test mask"
 """)
     calls = []
     product = {
@@ -76,10 +96,13 @@ output_dir = "run"
         rows = list(csv.DictReader(stream))
     assert len(rows) == 1 and rows[0]["quality_flag"] == "2048.0"
     assert len(rows[0]["record_id"]) == 64
+    assert rows[0]["polarization"] == "VV" and rows[0]["producttype"] == "OCN"
+    assert abs(float(rows[0]["sea_percent"]) - 50) < 1e-8
     assert not {"reference_sha256", "matching_policy"} & rows[0].keys()
     manifest = json.loads((tmp_path / "run/manifest.json").read_text())
     assert len(manifest["reference_inputs"][0]["sha256"]) == 64
     assert manifest["rules"]["policy"] == "scat_safe_v1"
+    assert manifest["land_mask"]["source"] == "synthetic unit-test mask"
     assert rows[0]["ref_row_0based"] == rows[0]["ref_cell_0based"] == "0"
     assert json.loads((tmp_path / "run/manifest.json").read_text())["status"] == "success"
     assert main(["run", "--recipe", str(recipe)]) == 2

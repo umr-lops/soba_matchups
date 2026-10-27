@@ -1,11 +1,11 @@
-"""Standalone entry point for TOML validation and SAFE-level matching."""
+"""Standalone entry point for TOML validation and imagette-level matching."""
 
 import argparse
 import json
 import sys
 import tomllib
 
-import requests
+import xml.etree.ElementTree as ET
 
 from soba_matchups.config import load_recipe
 from soba_matchups.pipeline import reference_inputs, run
@@ -37,13 +37,14 @@ def main(argv=None):
                     {
                         "status": manifest["status"],
                         "output_dir": str(recipe.output_dir),
-                        "matchup_safe_cell_rows": manifest["matchup_safe_cell_rows"],
+                        "stac_items": manifest["stac_items"],
+                        "matchup_imagette_cell_rows": manifest["matchup_imagette_cell_rows"],
                         "sar_products_processed": manifest["sar_products_processed"],
                     },
                     indent=2,
                 )
             )
-    except (ValueError, OSError, requests.RequestException, tomllib.TOMLDecodeError) as exc:
+    except (ValueError, OSError, ET.ParseError, tomllib.TOMLDecodeError) as exc:
         print(f"soba_matchups: {exc}", file=sys.stderr)
         return 2
     return 0

@@ -1,115 +1,85 @@
-import csv
+"""Exercise the local archive through the real CLI, without network access."""
+
 import json
-from uuid import UUID
+import socket
 
-import numpy as np
-import xarray as xr
+from soba_matchups.cli import main
 
 
-def test_cli_runs_real_reader_and_outputs_without_network(tmp_path, monkeypatch):
-    from soba_matchups.cli import main
-    import soba_matchups.pipeline as pipeline
+def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monkeypatch):
+    def no_network(*args, **kwargs):
+        raise AssertionError("Local matching must not open a network connection")
 
-    reference_dir = tmp_path / "references"
-    reference_dir.mkdir()
-    day_dir = reference_dir / "hy-2b/hscat/25km/data/2020/010"
-    day_dir.mkdir(parents=True)
-    ds = xr.Dataset(
-        {
-            k: (("NUMROWS", "NUMCELLS"), [[v]])
-            for k, v in {
-                "lon": 0.5,
-                "lat": 0.5,
-                "wind_speed": 5.0,
-                "wind_dir": 90.0,
-                "time": np.datetime64("2020-01-10T12:20:00", "ns"),
-                "wvc_quality_flag": 2048.0,
-                "ice_prob": 0.5,
-            }.items()
-        },
-        attrs={
-            "source": "HY-2B HSCAT",
-            "software_identification_wind": "2202",
-            "pixel_size_on_horizontal": "25.0 km",
-            "start_date": "2020-01-10",
-            "start_time": "12:00:00",
-            "stop_date": "2020-01-10",
-            "stop_time": "12:30:00",
-        },
-    )
-    ds.wind_speed.attrs["units"] = "m s-1"
-    ds.wind_dir.attrs["units"] = "degree"
-    ds.to_netcdf(day_dir / "control.nc")
-    land = tmp_path / "land.geojson"
-    land.write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "properties": {"synthetic": True},
-                        "geometry": {
-                            "type": "Polygon",
-                            "coordinates": [[[0, -1], [0.5, -1], [0.5, 2], [0, 2], [0, -1]]],
-                        },
-                    }
-                ],
-            }
-        )
-    )
-    recipe = tmp_path / "control.toml"
-    recipe.write_text("""scat = "hscat"
-met = "hy-2b"
-resolution = "25km"
-reference_version = "2202"
-reference_root = "references"
-start_date = "2020-01-10"
-stop_date = "2020-01-11"
-sar_missions = ["S1A"]
-time_tolerance_minutes = 60
-sar_cache_dir = "cache"
-output_dir = "run"
-land_mask = "land.geojson"
-land_mask_source = "synthetic unit-test mask"
-""")
-    calls = []
-    product = {
-        "Id": str(UUID(int=1)),
-        "Name": "S1A_WV_OCN__2SSV_20200110T120000_20200110T123000_000001_000001_0001.SAFE",
-        "ContentDate": {"Start": "2020-01-10T12:00:00Z", "End": "2020-01-10T12:30:00Z"},
-        "GeoFootprint": {
-            "type": "Polygon",
-            "coordinates": [[(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]],
-        },
-    }
-
-    def discovery(*args, **kwargs):
-        calls.append(args)
-        return [product], {"source": "synthetic HTTP-boundary control", "complete": True}
-
-    monkeypatch.setattr(pipeline, "discover", discovery)
+    monkeypatch.setattr(socket, "create_connection", no_network)
+    recipe = local_recipe
     assert main(["validate", "--recipe", str(recipe)]) == 0
-    assert not calls and not (tmp_path / "run").exists()
     assert main(["run", "--recipe", str(recipe)]) == 0
-    with (tmp_path / "run/matchups.csv").open() as stream:
-        rows = list(csv.DictReader(stream))
-    assert len(rows) == 1 and rows[0]["quality_flag"] == "2048.0"
-    assert len(rows[0]["record_id"]) == 64
-    assert rows[0]["polarization"] == "VV" and rows[0]["producttype"] == "OCN"
-    assert abs(float(rows[0]["sea_percent"]) - 50) < 1e-8
-    assert not {"reference_sha256", "matching_policy"} & rows[0].keys()
-    manifest = json.loads((tmp_path / "run/manifest.json").read_text())
-    assert len(manifest["reference_inputs"][0]["sha256"]) == 64
-    assert manifest["rules"]["policy"] == "scat_safe_v1"
-    assert manifest["land_mask"]["source"] == "synthetic unit-test mask"
-    assert rows[0]["ref_row_0based"] == rows[0]["ref_cell_0based"] == "0"
-    assert json.loads((tmp_path / "run/manifest.json").read_text())["status"] == "success"
+    result = recipe.parent / "result"
+    manifest = json.loads((result / "manifest.json").read_text())
+    items = [json.loads(p.read_text()) for p in sorted((result / "items").glob("*.json"))]
+    assert len(items) == manifest["stac_items"] == 2
+    assert manifest["matchup_imagette_cell_rows"] == 8
+    assert manifest["discovery"]["source"] == "local_ocn"
+    points = []
+    for item in items:
+        assert item["type"] == "Feature"
+        assert item["stac_version"] == "1.0.0"
+        assert item["assets"]["sar"]["href"].startswith("file:")
+        assert (
+            item["properties"]["soba:mapping_policy"] == "local_ocn_geolocation_to_manifest_frame"
+        )
+        groups = item["properties"]["soba:matchups"]
+        assert len(groups) == 2
+        points.extend(point for group in groups for point in group["points"])
+    assert len({p["record_id"] for p in points}) == 8
+    assert {p["ref_cell_0based"] for p in points} == {0, 1, 2, 3}
+    assert any(p["quality_flag"] == 2048 for p in points)
+    from soba_matchups import __version__
+
+    for path in (result / "items").glob("*.json"):
+        item = json.loads(path.read_text())
+        props = item["properties"]
+        assert props["sarmatchup:sar_platform"] == "sentinel-1a"
+        assert props["sarmatchup:sar_instrument_mode"] == "WV"
+        assert props["sarmatchup:sar_product_type"] == "OCN"
+        assert props["sarmatchup:sar_safe"].endswith(".SAFE")
+        assert not {
+            "platform",
+            "soba:safe_name",
+            "soba:producttype",
+            "sarmatchup:sar_ocn_safe",
+            "sarmatchup:sar_start_datetime",
+            "sarmatchup:sar_stop_datetime",
+        }.intersection(props)
+        assert props["start_datetime"] < props["end_datetime"]
+        assert props["sarmatchup:other_instrument"] == "HY-2B HSCAT"
+        assert props["sarmatchup:other_type"] == "scatterometer"
+        assert props["sarmatchup:other_geometry_type"] == "MultiPoint"
+        assert props["sarmatchup:searching_window_hours"] == 1 / 60
+        assert props["sarmatchup:lib_version"] == __version__
+        groups = props["soba:matchups"]
+        assert props["sarmatchup:n_coloc_points"] == sum(len(g["points"]) for g in groups)
+        for group in groups:
+            assert group["sarmatchup:other_id"] == group["reference_file"]
+            assert group["reference_geometry"] == {
+                "type": "MultiPoint",
+                "coordinates": [[p["ref_lon"], p["ref_lat"]] for p in group["points"]],
+            }
+            for point in group["points"]:
+                assert point["delta_diff_time_minutes"] == -0.5 / 60
+        assert props["sarmatchup:delta_diff_time_minutes_min"] == -0.5 / 60
+        assert props["sarmatchup:delta_diff_time_minutes_max"] == -0.5 / 60
+        assert "sarmatchup:delta_diff_time_minutes" not in props
+        stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
+        assert path.name == f"{stem}__IMG{props['soba:imagette_index']:03d}__HY2B_HSCAT.json"
+        assert item["id"] != path.stem
+    before = (result / "manifest.json").read_bytes()
     assert main(["run", "--recipe", str(recipe)]) == 2
-    recipe.write_text(recipe.read_text().replace('output_dir = "run"', 'output_dir = "empty"'))
-    product["GeoFootprint"]["coordinates"] = [[(2, 0), (3, 0), (3, 1), (2, 1), (2, 0)]]
-    assert main(["run", "--recipe", str(recipe)]) == 0
-    with (tmp_path / "empty/matchups.csv").open() as stream:
-        assert list(csv.DictReader(stream)) == []
-    empty = json.loads((tmp_path / "empty/manifest.json").read_text())
-    assert empty["status"] == "no_matches" and empty["matchup_safe_cell_rows"] == 0
+    assert (result / "manifest.json").read_bytes() == before
+
+
+def test_incomplete_local_safe_does_not_publish(local_recipe):
+    recipe = local_recipe
+    next(recipe.parent.glob("esa/**/measurement/*.nc")).unlink()
+    assert main(["run", "--recipe", str(recipe)]) == 2
+    assert not (recipe.parent / "result").exists()

@@ -65,10 +65,13 @@ PY
     their attribution and ODbL notice. No runtime land-mask bind is needed.
     Set land_mask = "/opt/soba_matchups/land/land_polygons.shp" in the recipe.
 
-    Bind the archive read-only and a recipe/cache/output workspace read-write:
-        apptainer run --bind /path/to/knmi/satellite/l2b:/reference:ro \
+    Bind the KNMI and ESA archives read-only, and the output workspace writable:
+        ESA=/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa
+        apptainer run --bind "$ESA:$ESA:ro" \
+            --bind /path/to/knmi/satellite/l2b:/reference:ro \
             --bind /path/to/work:/work soba_matchups.sif run --recipe /work/hscat.toml
 
-    Set reference_root = "/reference" in the recipe, and put sar_cache_dir and
-    output_dir under /work. The output directory must be new. Online runs need
-    access to the Copernicus catalogue; offline runs require a matching cache.
+    Set reference_root = "/reference", sar_archive_root to the same ESA path,
+    and output_dir to a NEW directory under /work. No API, credentials or cache.
+    The ESA root must contain extracted L2/WV OCN SAFEs and their measurement NCs.
+    No L1 files are used. Output items/ contains one STAC JSON per matched imagette.

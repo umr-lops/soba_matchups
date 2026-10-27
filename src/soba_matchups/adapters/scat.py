@@ -10,7 +10,9 @@ import tempfile
 import numpy as np
 import xarray as xr
 from shapely import contains_xy
+from shapely.affinity import translate
 from shapely.geometry import shape
+from shapely.ops import unary_union
 
 
 def match_cells(product, reference, tolerance_minutes):
@@ -33,7 +35,20 @@ def match_cells(product, reference, tolerance_minutes):
     )
     indices = np.flatnonzero(mask)
     lon = (reference["lon"][indices] + 180) % 360 - 180
-    return indices[contains_xy(geometry, lon, reference["lat"][indices])]
+    inside = contains_xy(geometry, lon, reference["lat"][indices])
+    if (
+        geometry.geom_type == "MultiPolygon"
+        and geometry.bounds[0] == -180
+        and geometry.bounds[2] == 180
+    ):
+        # Rejoin the artificial map cut; the real footprint edge stays strict.
+        unwrapped = unary_union(
+            [translate(part, xoff=360) if part.bounds[2] <= 0 else part for part in geometry.geoms]
+        )
+        inside |= contains_xy(
+            unwrapped, np.where(lon < 0, lon + 360, lon), reference["lat"][indices]
+        )
+    return indices[inside]
 
 
 def read_reference(path, version):

@@ -6,72 +6,30 @@
 [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Match Sentinel-1 Wave Mode SAFE metadata with reference observations.
-Currently supports HY-2B HSCAT 25 km, processing version 2202.
+Match local Sentinel-1 WV L2 OCN imagettes with HY-2B HSCAT 25 km observations
+(processing version 2202). Output: one STAC JSON per matched imagette, with
+reference points grouped by source granule. No L1 files, API access or credentials.
 
-## Install
+## Install and run
 
 ```sh
 conda env create -f environment.yml
 conda activate soba_matchups
 python -m pip install -e . --no-build-isolation
-```
-
-## Run
-
-Copy [examples/hscat.toml](examples/hscat.toml) to `hscat.toml` and edit the paths
-and dates. Set `reference_root` to the KNMI `satellite/l2b` archive root;
-`scat`, `met`, `resolution` and the dates select the day folders. `stop_date` is exclusive.
-
-```sh
+cp examples/hscat.toml hscat.toml
+# Edit archive paths, dates, mask and output directory.
 soba_matchups validate --recipe hscat.toml
 soba_matchups run --recipe hscat.toml
 ```
 
-Matching uses full SAFE footprints and SAFE start/end times with the configured
-tolerance. Dates select reference-granule start days. Quality/ice flags are retained,
-not filtered. `sar_cache_dir` stores reusable API metadata; `output_dir` must be new.
-
-Outputs: `matchups.csv`, `pair_diagnostics.csv`, `sar_metadata.json` and `manifest.json`.
-These are SAFE/reference-cell matchups, not enriched co-aligned catalogues.
-`record_id` identifies each pair; input checksums and matching rules stay in the manifest.
-`polarization` and `producttype` are decoded and validated from each SAFE name.
-`sea_percent` is calculated over the full SAFE footprint, using OSM land polygons
-and equal-area EPSG:6933 areas. It is reported, not used as a matchup filter.
-
-Set `land_mask` in the recipe to a local WGS84 `land_polygons.shp` from
-[OSM land polygons](https://osmdata.openstreetmap.de/data/land-polygons.html),
-with its sidecars
-
 ## Apptainer
 
-Build from the repository root with internet access:
+Build from this checkout with internet access. Runtime needs only local files:
 
 ```sh
 apptainer build soba_matchups.sif apptainer.def
-```
-
-Put your recipe in a writable work directory. Set `reference_root = "/reference"`,
-`sar_cache_dir = "/work/cache/sar"` and `output_dir = "/work/runs/hscat-001"`.
-Use a new output directory for each run. Set
-`land_mask = "/opt/soba_matchups/land/land_polygons.shp"`: the build downloads OSM
-polygons and their ODbL attribution into the image. No runtime mask bind or download
-is needed. Rebuild the image to update its mask; this increases image size.
-
-```sh
-apptainer run --bind /path/to/knmi/satellite/l2b:/reference:ro \
-  --bind /path/to/work:/work soba_matchups.sif validate --recipe /work/hscat.toml
-apptainer run --bind /path/to/knmi/satellite/l2b:/reference:ro \
+META=/path/to/local/metadata
+apptainer run --bind "$META:$META:ro" \
+  --bind /path/to/knmi/satellite/l2b:/reference:ro \
   --bind /path/to/work:/work soba_matchups.sif run --recipe /work/hscat.toml
-```
-
-Online runs need Copernicus catalogue access. `offline = true` requires an existing
-complete cache for the same query. Bind the archive's real path if it is a symlink.
-
-## Checks
-
-```sh
-pre-commit install
-pre-commit run --all-files
-python -m pytest -q
 ```

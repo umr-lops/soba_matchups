@@ -32,6 +32,24 @@ def test_safe_matching_preserves_components_and_strict_boundaries():
     assert match_cells(product, ref, 60).tolist() == [0, 1, 5, 6]
 
 
+def test_dateline_seam_is_interior_not_outer_boundary():
+    from soba_matchups.adapters.scat import match_cells
+    from shapely.geometry import MultiPolygon, box, mapping
+
+    product = {
+        "ContentDate": {"Start": "2026-06-29T12:00:00Z", "End": "2026-06-29T12:00:03Z"},
+        "GeoFootprint": mapping(MultiPolygon([box(179.8, 10, 180, 11), box(-180, 10, -179.8, 11)])),
+    }
+    ref = {
+        "lon": np.array([179.9, -179.9, 180, -180, 179.8, 0]),
+        "lat": np.full(6, 10.5),
+        "time": np.full(6, np.datetime64("2026-06-29T12:00:01", "ns")),
+        "wind_speed": np.full(6, 5.0),
+        "wind_dir": np.full(6, 90.0),
+    }
+    assert match_cells(product, ref, 1).tolist() == [0, 1, 2, 3]
+
+
 def test_hscat_reader_keeps_original_indices_and_checks_product(tmp_path):
     from soba_matchups.adapters.scat import read_reference
 

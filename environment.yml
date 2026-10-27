@@ -16,5 +16,4 @@ dependencies:
   - shapely=2.2.0
   - pyproj=3.8.0
   - pyogrio=0.13.0
-  - requests=2.34.2
   - netcdf4=1.7.4

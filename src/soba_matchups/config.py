@@ -16,13 +16,12 @@ class Recipe:
     stop_date: date
     sar_missions: tuple[str, ...]
     time_tolerance_minutes: float
-    sar_cache_dir: Path
+    sar_archive_root: Path
     output_dir: Path
     land_mask: Path
     scat: str
     met: str
     resolution: str
-    offline: bool = False
     land_mask_source: str = "local file; origin not asserted"
 
     def resolved(self):
@@ -35,19 +34,14 @@ def load_recipe(path):
         raise ValueError("Recipe must be a .toml file")
     with path.open("rb") as stream:
         data = tomllib.load(stream)
-    optional = {"offline", "land_mask_source"}
+    optional = {"land_mask_source"}
     required = set(Recipe.__dataclass_fields__) - {"path"} - optional
     unknown = set(data) - required - optional
     if unknown or required - set(data):
         raise ValueError(
             f"Unknown recipe keys: {sorted(unknown)}; missing keys: {sorted(required - set(data))}"
         )
-    if (
-        data["scat"],
-        data["met"],
-        data["resolution"],
-        data["reference_version"],
-    ) != (
+    if (data["scat"], data["met"], data["resolution"], data["reference_version"]) != (
         "hscat",
         "hy-2b",
         "25km",
@@ -85,24 +79,20 @@ def load_recipe(path):
         or len(set(missions)) != len(missions)
     ):
         raise ValueError("sar_missions must contain distinct supported Sentinel-1 missions")
-    if not isinstance(data.get("offline", False), bool):
-        raise ValueError("offline must be a boolean")
     if (
         not isinstance(data.get("land_mask_source", "local file; origin not asserted"), str)
         or not data.get("land_mask_source", "local file; origin not asserted").strip()
     ):
         raise ValueError("land_mask_source must be a nonempty provenance label")
-    for key in ["reference_root", "sar_cache_dir", "output_dir", "land_mask"]:
+    for key in ["reference_root", "sar_archive_root", "output_dir", "land_mask"]:
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
         data[key] = (path.parent / data[key]).resolve()
     if not data["land_mask"].is_file():
         raise ValueError(f"Land mask does not exist: {data['land_mask']}")
-    if not data["reference_root"].is_dir():
-        raise ValueError(f"Reference directory does not exist: {data['reference_root']}")
-    for key in ["output_dir", "sar_cache_dir"]:
-        if data[key].is_relative_to(data["reference_root"]):
-            raise ValueError(f"{key} must stay outside reference_root")
-    if data["sar_cache_dir"] == data["output_dir"]:
-        raise ValueError("Cache and output directories must differ")
+    for key in ["reference_root", "sar_archive_root"]:
+        if not data[key].is_dir():
+            raise ValueError(f"{key} directory does not exist: {data[key]}")
+        if data["output_dir"].is_relative_to(data[key]):
+            raise ValueError(f"output_dir must stay outside {key}")
     return Recipe(path=path, **{**data, "sar_missions": tuple(missions)})

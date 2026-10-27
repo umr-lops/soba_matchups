@@ -1,4 +1,4 @@
-"""HSCAT coverage -> SAR discovery -> SAFE/cell matching -> publication."""
+"""HSCAT coverage -> SAFE candidates -> imagette matching -> STAC publication."""
 
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -9,8 +9,8 @@ import numpy as np
 from soba_matchups import __version__
 from soba_matchups.adapters import scat
 from soba_matchups.land_fraction import LandMask
-from soba_matchups.output import file_identity, publish
-from soba_matchups.sar_metadata import decode_safe_name, discover
+from soba_matchups.output import file_identity, imagette_item, publish
+from soba_matchups.sar_metadata import decode_safe_name, discover_local, verify_local_inputs
 
 
 def reference_inputs(recipe):
@@ -58,64 +58,100 @@ def run(recipe):
 
     start = iso(min(ref["coverage_start"] for ref in refs) - delta)
     end = iso(max(ref["coverage_end"] for ref in refs) + delta)
-    products, discovery = discover(
-        start, end, recipe.sar_missions, recipe.sar_cache_dir, offline=recipe.offline
-    )
-    rows, diagnostics = [], []
+    products, discovery = discover_local(start, end, recipe.sar_missions, recipe.sar_archive_root)
+    items, diagnostics = [], []
+    seen_points = set()
+    imagettes_processed = duplicate_points = safes_without_candidates = 0
+    candidate_cells = 0
 
     def number(x):
         return float(x) if np.isfinite(x) else None
 
     for product in products:
-        sar_fields = decode_safe_name(product["Name"])
-        if sar_fields["producttype"] != "OCN":
+        fields = decode_safe_name(product["Name"])
+        if fields["producttype"] != "OCN":
             raise ValueError("SAR product type does not match the WV OCN discovery request")
-        sea_percent = None
-        for ref in refs:
-            indices = scat.match_cells(product, ref, recipe.time_tolerance_minutes)
-            diagnostics.append(
-                {
-                    "safe_id": product["Id"],
-                    "reference_file": ref["path"].name,
-                    "matched_cells": len(indices),
+        candidates = [
+            (ref, scat.match_cells(product, ref, recipe.time_tolerance_minutes)) for ref in refs
+        ]
+        candidate_cells += sum(len(indices) for _, indices in candidates)
+        if not any(len(indices) for _, indices in candidates):
+            safes_without_candidates += 1
+            continue
+        for imagette in product["Imagettes"]:
+            imagettes_processed += 1
+            groups = []
+            for ref, safe_indices in candidates:
+                if not len(safe_indices):
+                    continue
+                subset = {
+                    key: ref[key][safe_indices]
+                    for key in ["lon", "lat", "time", "wind_speed", "wind_dir"]
                 }
-            )
-            if len(indices) and sea_percent is None:
-                sea_percent = land.sea_percent(product["GeoFootprint"])
-            for i in indices:
-                flat = int(ref["flat"][i])
-                row_index, cell_index = divmod(flat, ref["columns"])
-                token = f"{product['Id']}|{ref['identity']['sha256']}|{flat}"
-                rows.append(
+                indices = safe_indices[
+                    scat.match_cells(imagette, subset, recipe.time_tolerance_minutes)
+                ]
+                points = []
+                for i in indices:
+                    flat = int(ref["flat"][i])
+                    row_index, cell_index = divmod(flat, ref["columns"])
+                    token = f"{imagette['Id']}|{ref['identity']['sha256']}|{flat}"
+                    identity = hashlib.sha256(token.encode()).hexdigest()
+                    if identity in seen_points:
+                        duplicate_points += 1
+                        continue
+                    seen_points.add(identity)
+                    points.append(
+                        {
+                            "record_id": identity,
+                            "ref_row_0based": row_index,
+                            "ref_cell_0based": cell_index,
+                            "ref_time_utc": str(ref["time"][i].astype("datetime64[ns]")) + "Z",
+                            "ref_lon": float((ref["lon"][i] + 180) % 360 - 180),
+                            "ref_lat": float(ref["lat"][i]),
+                            "wind_speed": float(ref["wind_speed"][i]),
+                            "wind_direction_to": float(ref["wind_dir"][i]),
+                            "quality_flag": number(ref["wvc_quality_flag"][i]),
+                            "ice_probability": number(ref["ice_prob"][i]),
+                        }
+                    )
+                diagnostics.append(
                     {
-                        "record_id": hashlib.sha256(token.encode()).hexdigest(),
                         "safe_id": product["Id"],
-                        "safe_name": product["Name"],
-                        "mission": product["Name"][:3],
-                        **sar_fields,
-                        "sea_percent": sea_percent,
-                        "safe_start_utc": product["ContentDate"]["Start"],
-                        "safe_end_utc": product["ContentDate"]["End"],
+                        "imagette_id": imagette["Id"],
                         "reference_file": ref["path"].name,
-                        "reference_path": str(ref["path"]),
-                        "ref_row_0based": row_index,
-                        "ref_cell_0based": cell_index,
-                        "ref_time_utc": str(ref["time"][i].astype("datetime64[ns]")) + "Z",
-                        "ref_lon": float((ref["lon"][i] + 180) % 360 - 180),
-                        "ref_lat": float(ref["lat"][i]),
-                        "wind_speed": float(ref["wind_speed"][i]),
-                        "wind_direction_to": float(ref["wind_dir"][i]),
-                        "quality_flag": number(ref["wvc_quality_flag"][i]),
-                        "ice_probability": number(ref["ice_prob"][i]),
+                        "matched_cells": len(indices),
+                        "retained_cells": len(points),
                     }
                 )
+                if points:
+                    groups.append(
+                        {
+                            "reference_file": ref["path"].name,
+                            "reference_path": str(ref["path"]),
+                            "reference_sha256": ref["identity"]["sha256"],
+                            "points": points,
+                        }
+                    )
+            if groups:
+                items.append(
+                    imagette_item(
+                        product,
+                        imagette,
+                        fields,
+                        groups,
+                        land.sea_percent(imagette["GeoFootprint"]),
+                        recipe.time_tolerance_minutes,
+                    )
+                )
+    verify_local_inputs(discovery)
     land.verify_unchanged()
     for ref in refs:
         if file_identity(ref["path"]) != ref["identity"]:
             raise ValueError(f"Input changed during processing: {ref['path']}")
     manifest = {
-        "schema_version": 2,
-        "status": "success" if rows else "no_matches",
+        "schema_version": 6,
+        "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
         "library_version": __version__,
@@ -136,36 +172,47 @@ def run(recipe):
         "land_mask": {
             **land.provenance,
             "source": recipe.land_mask_source,
-            "footprint_scope": "full SAFE, not individual imagette or reference cell",
+            "footprint_scope": "individual imagette",
             "used_as_filter": False,
         },
         "reference_files": len(refs),
         "reference_finite_wind_cells": sum(len(ref["flat"]) for ref in refs),
         "sar_products_processed": len(products),
-        "matchup_safe_cell_rows": len(rows),
-        "matched_safes": len({r["safe_id"] for r in rows}),
-        "positive_safe_reference_file_pairs": sum(d["matched_cells"] > 0 for d in diagnostics),
+        "safes_without_candidate_cells": safes_without_candidates,
+        "safe_candidate_cell_rows": candidate_cells,
+        "imagettes_processed": imagettes_processed,
+        "stac_items": len(items),
+        "matchup_imagette_cell_rows": len(seen_points),
+        "duplicate_associations_discarded": duplicate_points,
+        "matched_safes": len({i["properties"]["soba:safe_id"] for i in items}),
+        "positive_imagette_reference_file_pairs": sum(d["retained_cells"] > 0 for d in diagnostics),
         "source_code": [file_identity(p) for p in sorted(Path(__file__).parent.rglob("*.py"))],
         "rules": {
-            "policy": "scat_safe_v1",
-            "space": "strict full SAFE footprint containment",
-            "time": "strict SAFE start - tolerance < cell time < SAFE end + tolerance",
+            "policy": "scat_local_ocn_imagette_v1",
+            "imagette_mapping": "local_ocn_geolocation_to_manifest_frame",
+            "space": "strict individual imagette footprint point containment",
+            "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
+            "time_source": "OCN firstMeasurementTime / lastMeasurementTime UTC attributes",
             "time_tolerance_minutes": recipe.time_tolerance_minutes,
             "retention": "all finite wind vectors; retain quality/ice flags without filtering",
         },
         "units": {
-            "sea_percent": "percent of full SAFE footprint outside the land mask",
+            "sea_percent": "percent of individual imagette footprint outside the land mask",
             "wind_speed": "m s-1",
             "wind_direction_to": "degree, flowing toward",
             "ref_lon": "degrees_east, [-180,180)",
             "ref_lat": "degrees_north",
         },
         "limitations": [
-            "SAFE/reference-cell identities, not resolved imagettes or co-aligned data.",
-            "Keep all footprint components; no legacy largest-part reduction.",
+            "Requires extracted L2 OCN SAFEs with manifest.safe and all listed measurement files.",
+            "Missing/ambiguous native frame associations fail without suffix fallback.",
+            "Reads OSW geolocation and UTC attributes, not wind/spectral arrays; no network.",
+            "Archive inventory only; missing mission/day directories are listed in discovery.",
+            "SAR file identities use size/mtime; manifests and references use SHA256.",
+            "soba:* properties are project-specific, not a registered STAC extension.",
             "No sea-percent/polar prefilter or downstream quality/ice filter.",
             "Tolerance is explicitly configured, not scientifically calibrated.",
-            "Sequential bounded bundles; no scheduler, resume or parallel publication.",
+            "One Item per matched imagette per fresh run; no cross-run update or enrichment.",
         ],
     }
-    return publish(recipe.output_dir, rows, diagnostics, products, manifest)
+    return publish(recipe.output_dir, items, diagnostics, products, manifest)

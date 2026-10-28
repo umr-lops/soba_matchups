@@ -16,6 +16,7 @@ from shapely.ops import unary_union
 from .output import file_identity
 
 IMAGETTE_MAPPING_POLICY = "local_ocn_geolocation_to_manifest_frame"
+OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
     r"S1[ABCD]_WV_(?P<producttype>OCN|SLC)__"
     r"(?P<level>[12])[A-Z](?P<pol>SV|SH)_"
@@ -30,6 +31,7 @@ _GML = "{http://www.opengis.net/gml}"
 
 
 def decode_safe_name(name):
+    """Return polarization and product type of a WV SAFE name; reject any other name."""
     match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
     if match is None or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]:
         raise ValueError(f"Unsupported Sentinel-1 WV SAFE name: {name!r}")
@@ -40,6 +42,7 @@ def decode_safe_name(name):
 
 
 def _utc(value, *, esa=False):
+    """Parse an ISO8601 UTC timestamp. ESA manifests omit the zone, so esa=True assumes UTC."""
     if not isinstance(value, str) or "T" not in value:
         raise ValueError(f"Expected UTC ISO8601 timestamp: {value!r}")
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -51,10 +54,12 @@ def _utc(value, *, esa=False):
 
 
 def _iso(value):
+    """Format a UTC datetime with a trailing Z."""
     return value.isoformat().replace("+00:00", "Z")
 
 
 def _objects(root):
+    """Map each manifest metadataObject ID to its XML element."""
     result = {}
     for element in root.iter():
         if element.tag.split("}")[-1] == "metadataObject":
@@ -66,6 +71,7 @@ def _objects(root):
 
 
 def _text(element, tag):
+    """Return the text of the one `tag` element below `element`; fail if absent or repeated."""
     values = [e.text.strip() for e in element.iter() if e.tag.split("}")[-1] == tag and e.text]
     if len(values) != 1:
         raise ValueError(f"Expected unique manifest {tag}")
@@ -73,6 +79,7 @@ def _text(element, tag):
 
 
 def _frames(root):
+    """Parse the manifest frame set into GeoJSON polygons, one per imagette frame."""
     try:
         frame_set = _objects(root)["measurementFrameSet"]
     except KeyError as exc:
@@ -90,6 +97,7 @@ def _frames(root):
             raise ValueError("Missing frame coordinates")
         ring = []
         for pair in coords[0].text.split():
+            # Manifest coordinates are written as "lat,lon".
             lat, lon = map(float, pair.split(","))
             if not (
                 math.isfinite(lon)
@@ -98,12 +106,14 @@ def _frames(root):
                 and -90 <= lat <= 90
             ):
                 raise ValueError("Nonfinite/out-of-range frame coordinates")
+            # Unwrap longitudes so a frame crossing the dateline stays contiguous.
             if ring:
                 while lon - ring[-1][0] > 180:
                     lon -= 360
                 while lon - ring[-1][0] < -180:
                     lon += 360
             ring.append((lon, lat))
+        # Close the ring if the file leaves it open.
         if ring and ring[0] != ring[-1]:
             ring.append(ring[0])
         polygon = Polygon(ring)
@@ -115,6 +125,7 @@ def _frames(root):
             or polygon.bounds[2] - polygon.bounds[0] >= 180
         ):
             raise ValueError("Invalid native four-corner frame")
+        # Cut at +/-180 so a dateline frame becomes a MultiPolygon of the same frame.
         pieces = []
         for shift in (-360, 0, 360):
             part = translate(polygon, xoff=shift).intersection(box(-180, -90, 180, 90))
@@ -134,6 +145,7 @@ def read_manifest_frames(path: Path) -> list[dict]:
 
 
 def _manifest(root, name, mission):
+    """Check the manifest agrees with the SAFE name; return (name info, start, stop)."""
     info = decode_safe_name(name)
     if info["producttype"] != "OCN" or name[:3] != mission:
         raise ValueError("Production discovery requires requested mission L2 WV OCN SAFE")
@@ -157,6 +169,7 @@ def _manifest(root, name, mission):
         or _text(general, "transmitterReceiverPolarisation") != info["polarization"]
     ):
         raise ValueError("Manifest product/polarization mismatch")
+    # SAFE name fields: parts[5:7] start/stop, parts[7] absolute orbit, parts[8] datatake ID.
     parts = name.split("_")
     first, last = (_utc(_text(period, key), esa=True) for key in ("startTime", "stopTime"))
     if not timedelta(0) < last - first < timedelta(days=1):
@@ -165,14 +178,29 @@ def _manifest(root, name, mission):
         named = datetime.strptime(token, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
         if abs((native - named).total_seconds()) > 2:
             raise ValueError("SAFE filename/manifest acquisition mismatch")
-    for tag, expected in [("missionDataTakeID", int(parts[8], 16)), ("orbitNumber", int(parts[7]))]:
-        values = [e.text for e in root.iter() if e.tag.split("}")[-1] == tag]
-        if values and any(int(v) != expected for v in values):
-            raise ValueError(f"Manifest {tag}/SAFE identity mismatch")
+    # Datatake and orbit are cross-checked only when the manifest carries them.
+    expected_datatake = int(parts[8], 16)
+    values = [e.text for e in root.iter() if e.tag.split("}")[-1] == "missionDataTakeID"]
+    if values and any(int(v) != expected_datatake for v in values):
+        raise ValueError(f"Manifest missionDataTakeID/SAFE identity mismatch: {name}")
+    orbits = [e for e in root.iter() if e.tag.split("}")[-1] == "orbitNumber"]
+    if orbits:
+        starts = [int(e.text) for e in orbits if e.get("type") == "start"]
+        stops = [int(e.text) for e in orbits if e.get("type") == "stop"]
+        if len(orbits) != 2 or len(starts) != 1 or len(stops) != 1:
+            raise ValueError(f"Manifest requires unique start/stop orbit numbers: {name}")
+        # The filename identifies the starting orbit; an acquisition can cross the orbit boundary.
+        if starts[0] != int(parts[7]) or stops[0] < starts[0]:
+            raise ValueError(
+                f"Manifest orbitNumber/SAFE identity mismatch: {name}; "
+                f"filename={int(parts[7])}, start={starts[0]}, stop={stops[0]}"
+            )
     return info, first, last
 
 
 def _measurements(root, safe):
+    """Return the measurement NetCDF paths the manifest lists, checked against the disk."""
+    # Map each dataObject ID to a file path that must stay inside the SAFE directory.
     objects, paths = {}, set()
     for element in root.iter():
         if element.tag.split("}")[-1] != "dataObject":
@@ -200,6 +228,7 @@ def _measurements(root, safe):
             raise ValueError(f"Duplicate native file reference: {href}")
         paths.add(path)
         objects[identity] = path
+    # Measurement data units point at the files that hold the imagettes.
     references = []
     for unit in root.iter():
         if unit.attrib.get("unitType", "").replace(" ", "") != "MeasurementDataUnit":
@@ -212,6 +241,7 @@ def _measurements(root, safe):
         if len(pointers) != 1 or pointers[0] not in objects:
             raise ValueError("Invalid measurement dataObjectPointer")
         references.append(objects[pointers[0]])
+    # The listed files, the measurement/ folder and the data units must all agree.
     native = {p for p in paths if p.parent == (safe / "measurement").resolve()}
     if not references or len(set(references)) != len(references) or set(references) != native:
         raise ValueError("Duplicate/missing native measurement references")
@@ -224,11 +254,13 @@ def _measurements(root, safe):
 
 
 def _stat(path):
+    """Cheap file identity (path, size, mtime) used to spot changes to large NetCDF files."""
     stat = path.stat()
     return {"path": str(path.resolve()), "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
 def _imagettes(root, safe, product, info, first, last, frames):
+    """Build one record per measurement NetCDF, tied to its own manifest frame."""
     paths = _measurements(root, safe)
     if len(paths) != len(frames):
         raise ValueError("Native measurement/frame count mismatch")
@@ -251,6 +283,7 @@ def _imagettes(root, safe, product, info, first, last, frames):
             raise ValueError("Duplicate/invalid numeric measurement identifier")
         indices.add(index)
         identity = _stat(path)
+        # Read only global times and OSW cell centres, never the wind or spectra arrays.
         with netCDF4.Dataset(path, "r") as dataset:
             times = [
                 _utc(dataset.getncattr(key), esa=True)
@@ -260,10 +293,20 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 np.ma.asarray(dataset.variables[key][:]).filled(np.nan)
                 for key in ("oswLon", "oswLat")
             ]
+        # The file must not change while it is being read.
         if identity != _stat(path):
             raise ValueError(f"OCN metadata input changed during read: {path}")
-        if not first <= times[0] < times[1] <= last:
-            raise ValueError("Measurement times outside manifest acquisition")
+        # Some OCN headers quantize to whole seconds while the manifest retains microseconds.
+        earliest = first.replace(microsecond=0) if times[0].microsecond == 0 else first
+        latest = last
+        if times[1].microsecond == 0 and last.microsecond:
+            latest = last.replace(microsecond=0) + timedelta(seconds=1)
+        if not earliest <= times[0] < times[1] <= latest:
+            raise ValueError(
+                f"Measurement times outside manifest acquisition: {path}; "
+                f"NC={list(map(_iso, times))}, manifest={[_iso(first), _iso(last)]}"
+            )
+        # Filename timestamps must match the NetCDF global times to within 2 s.
         for native_time, token in zip(times, (start, end)):
             named = datetime.strptime(token, "%Y%m%dt%H%M%S").replace(tzinfo=timezone.utc)
             if abs((native_time - named).total_seconds()) > 2:
@@ -276,6 +319,9 @@ def _imagettes(root, safe, product, info, first, last, frames):
         centres = list(zip(lon[valid].ravel(), lat[valid].ravel()))
         if any(not (-180 <= x <= 180 and -90 <= y <= 90) for x, y in centres):
             raise ValueError("Out-of-range OSW centres")
+        # The one frame covering every OSW centre is this imagette's footprint (a centre at
+        # exactly +/-180 also matches the opposite side of the dateline). No two imagettes
+        # may claim the same frame, so file order is never used.
         matches = [
             i
             for i, frame in enumerate(frames)
@@ -361,12 +407,14 @@ def discover_local(
                         raise ValueError(f"Duplicate SAFE name: {safe.name}")
                     seen.add(safe.name)
                     manifest = safe / "manifest.safe"
+                    # Hash before and after parsing to catch a file modified mid-read.
                     identity = file_identity(manifest)
                     root = ET.parse(manifest).getroot()
                     if file_identity(manifest) != identity:
                         raise ValueError(f"Manifest changed during read: {manifest}")
                     provenance["manifest_inputs"].append(identity)
                     info, acquisition_start, acquisition_end = _manifest(root, safe.name, mission)
+                    # Cheap manifest test first; NetCDF files are opened only for overlapping SAFEs.
                     if not (acquisition_start < last and acquisition_end > first):
                         continue
                     frames = _frames(root)

@@ -94,6 +94,45 @@ def test_native_centres_not_frame_order_and_verified_inputs(tmp_path):
         sar.verify_local_inputs(provenance)
 
 
+@pytest.mark.parametrize(
+    "start_offset,stop_offset,valid", [(0, 1, True), (1, 1, False), (0, -1, False)]
+)
+def test_native_orbit_start_matches_filename_but_stop_can_differ(
+    tmp_path, start_offset, stop_offset, valid
+):
+    safe, _ = archive(tmp_path)
+    path = safe / "manifest.safe"
+    root = ET.parse(path).getroot()
+    metadata = root.find("metadataSection")
+    node = ET.SubElement(metadata, "metadataObject", {"ID": "measurementOrbitReference"})
+    orbit = ET.SubElement(node, "{http://www.esa.int/safe/sentinel-1.0}orbitReference")
+    expected = int(NAME.split("_")[7])
+    for kind, offset in [("start", start_offset), ("stop", stop_offset)]:
+        ET.SubElement(
+            orbit, "{http://www.esa.int/safe/sentinel-1.0}orbitNumber", {"type": kind}
+        ).text = str(expected + offset)
+    ET.ElementTree(root).write(path, encoding="UTF-8", xml_declaration=True)
+    if valid:
+        products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+        assert len(products) == 1
+    else:
+        with pytest.raises(ValueError, match="orbit"):
+            sar.discover_local(START, END, ("S1C",), tmp_path)
+
+
+def test_whole_second_nc_header_can_precede_fractional_manifest_start(tmp_path):
+    safe, _ = archive(tmp_path)
+    manifest = safe / "manifest.safe"
+    text = manifest.read_text().replace(
+        "2025-06-01T01:14:29</safe:startTime>",
+        "2025-06-01T01:14:29.013725</safe:startTime>",
+    )
+    manifest.write_text(text)
+    products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+    assert len(products) == 1
+    assert products[0]["Imagettes"][0]["ContentDate"]["Start"] == START
+
+
 def test_safe_fields_preserved():
     assert sar.decode_safe_name(NAME) == {"polarization": "VV", "producttype": "OCN"}
     assert sar.decode_safe_name(NAME.replace("OCN__2", "SLC__1"))["producttype"] == "SLC"

@@ -12,6 +12,10 @@ from soba_matchups.pipeline import reference_inputs, run
 
 
 def main(argv=None):
+    """Run `validate` (check recipe and reference files) or `run` (match and publish).
+
+    Returns the process exit code: 0 on success, 2 on invalid input.
+    """
     parser = argparse.ArgumentParser(prog="soba_matchups")
     parser.add_argument("command", choices=["validate", "run"])
     parser.add_argument("--recipe", required=True)

@@ -45,3 +45,53 @@ def test_unsupported_product_is_not_silently_accepted(tmp_path):
     recipe.write_text(example.read_text().replace('scat = "hscat"', 'scat = "ascat"'))
     with pytest.raises(ValueError, match="supported"):
         load_recipe(recipe)
+
+
+PRODUCTS = [
+    ("ascat", "metop-b", "25km", "3202"),
+    ("ascat", "metop-b", "12.5km", "3301"),
+    ("ascat", "metop-b", "5.7km", "3307"),
+    ("ascat", "metop-c", "12.5km", "3203"),
+    ("hscat", "hy-2b", "25km", "4008"),
+    ("hscat", "hy-2c", "25km", "2202"),
+    ("hscat", "hy-2d", "25km", "4006"),
+]
+
+
+@pytest.mark.parametrize("sensor,platform,resolution,version", PRODUCTS)
+def test_available_knmi_products(local_recipe, sensor, platform, resolution, version):
+    from soba_matchups.config import load_recipe
+
+    text = local_recipe.read_text()
+    for old, new in [
+        ("hscat", sensor),
+        ("hy-2b", platform),
+        ("25km", resolution),
+        ("2202", version),
+    ]:
+        text = text.replace(f'"{old}"', f'"{new}"')
+    local_recipe.write_text(text)
+    config = load_recipe(local_recipe)
+    assert (config.scat, config.met, config.resolution, config.reference_version) == (
+        sensor,
+        platform,
+        resolution,
+        version,
+    )
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ('met = "hy-2b"', 'met = "metop-d"'),
+        ('resolution = "25km"', 'resolution = "12.5km"'),
+        ('reference_version = "2202"', "reference_version = 2202"),
+        ('reference_version = "2202"', 'reference_version = "9999"'),
+    ],
+)
+def test_invalid_knmi_selection(local_recipe, old, new):
+    from soba_matchups.config import load_recipe
+
+    local_recipe.write_text(local_recipe.read_text().replace(old, new))
+    with pytest.raises(ValueError, match="supported|version"):
+        load_recipe(local_recipe)

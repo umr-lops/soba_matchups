@@ -139,6 +139,10 @@ def local_recipe(tmp_path):
         )
         ds.wind_speed.attrs["units"] = "m s-1"
         ds.wind_dir.attrs["units"] = "degree"
+        ds.wind_dir.attrs["standard_name"] = "wind_to_direction"
+        ds.lon.attrs["units"] = "degrees_east"
+        ds.lat.attrs["units"] = "degrees_north"
+        ds.ice_prob.attrs["units"] = "1"
         ds.to_netcdf(reference / f"SYNTHETIC_HSCAT_{index:03d}.nc")
     (destination / "land.geojson").write_text(
         '{"type":"FeatureCollection","features":[{"type":"Feature",'

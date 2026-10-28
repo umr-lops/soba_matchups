@@ -7,8 +7,26 @@ from pathlib import Path
 import tomllib
 
 
+# Surveyed KNMI L2B identities; versions remain subject to per-file schema checks.
+REFERENCE_PRODUCTS = {
+    ("ascat", "metop-b", "25km"): ("MetOp-B ASCAT", "25.0 km"),
+    ("ascat", "metop-b", "12.5km"): ("MetOp-B ASCAT", "12.5 km"),
+    ("ascat", "metop-b", "5.7km"): ("MetOp-B ASCAT", "5.7 km"),
+    ("ascat", "metop-c", "12.5km"): ("MetOp-C ASCAT", "12.5 km"),
+    ("hscat", "hy-2b", "25km"): ("HY-2B HSCAT", "25.0 km"),
+    ("hscat", "hy-2c", "25km"): ("HY-2C HSCAT", "25.0 km"),
+    ("hscat", "hy-2d", "25km"): ("HY-2D HSCAT", "25.0 km"),
+}
+REFERENCE_VERSIONS = {
+    "ascat": {"2101", "3201", "3202", "3203", "3301", "3307"},
+    "hscat": {"2202", "4002", "4006", "4008"},
+}
+
+
 @dataclass(frozen=True)
 class Recipe:
+    """A validated recipe; every path is absolute and every value has been checked."""
+
     path: Path
     reference_version: str
     reference_root: Path
@@ -25,15 +43,18 @@ class Recipe:
     land_mask_source: str = "local file; origin not asserted"
 
     def resolved(self):
+        """Return the recipe as plain values that can be written to JSON."""
         return {k: str(v) if isinstance(v, (Path, date)) else v for k, v in asdict(self).items()}
 
 
 def load_recipe(path):
+    """Load and strictly validate a TOML recipe; relative paths resolve against its folder."""
     path = Path(path).resolve()
     if path.suffix != ".toml":
         raise ValueError("Recipe must be a .toml file")
     with path.open("rb") as stream:
         data = tomllib.load(stream)
+    # Reject unknown keys and missing required keys.
     optional = {"land_mask_source"}
     required = set(Recipe.__dataclass_fields__) - {"path"} - optional
     unknown = set(data) - required - optional
@@ -41,13 +62,15 @@ def load_recipe(path):
         raise ValueError(
             f"Unknown recipe keys: {sorted(unknown)}; missing keys: {sorted(required - set(data))}"
         )
-    if (data["scat"], data["met"], data["resolution"], data["reference_version"]) != (
-        "hscat",
-        "hy-2b",
-        "25km",
-        "2202",
-    ):
-        raise ValueError("Only hscat / hy-2b / 25km / version 2202 is supported")
+    product = (data["scat"], data["met"], data["resolution"])
+    if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
+        raise ValueError("Unsupported KNMI L2B sensor / platform / resolution combination")
+    version = data["reference_version"]
+    if not isinstance(version, str) or version not in REFERENCE_VERSIONS[data["scat"]]:
+        raise ValueError(
+            "Unsupported reference_version; select an explicit surveyed version string"
+        )
+    # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]
         if isinstance(value, str):
@@ -84,12 +107,14 @@ def load_recipe(path):
         or not data.get("land_mask_source", "local file; origin not asserted").strip()
     ):
         raise ValueError("land_mask_source must be a nonempty provenance label")
+    # Make every path absolute, relative to the recipe file.
     for key in ["reference_root", "sar_archive_root", "output_dir", "land_mask"]:
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
         data[key] = (path.parent / data[key]).resolve()
     if not data["land_mask"].is_file():
         raise ValueError(f"Land mask does not exist: {data['land_mask']}")
+    # Inputs must exist, and results must never be written inside them.
     for key in ["reference_root", "sar_archive_root"]:
         if not data[key].is_dir():
             raise ValueError(f"{key} directory does not exist: {data[key]}")

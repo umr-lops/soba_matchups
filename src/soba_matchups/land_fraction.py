@@ -13,6 +13,7 @@ from shapely.geometry import shape
 
 
 def _polygons(geometry, label):
+    """Validate a footprint or land geometry and return its polygon parts."""
     if (
         geometry.geom_type not in {"Polygon", "MultiPolygon"}
         or geometry.is_empty
@@ -44,6 +45,7 @@ class LandMask:
     """
 
     def __init__(self, path, *, source=None):
+        """Validate the mask file and CRS, then record file hashes for provenance."""
         self.path = Path(path).expanduser().resolve()
         if not self.path.is_file() or self.path.suffix.lower() not in {".shp", ".geojson", ".json"}:
             raise ValueError(f"Invalid local land mask: {self.path}")
@@ -71,6 +73,7 @@ class LandMask:
         self._transformer = Transformer.from_crs(4326, 6933, always_xy=True)
         paths = self._input_paths()
         self._identities = {path: self._identity(path) for path in paths}
+        # Hash every mask file once; later checks compare cheap stat tuples instead.
         files = []
         for path in paths:
             with path.open("rb") as stream:
@@ -90,6 +93,7 @@ class LandMask:
         self.verify_unchanged()
 
     def _input_paths(self):
+        """List the mask file plus any sidecar files that affect its content."""
         if self.path.suffix.lower() != ".shp":
             return [self.path]
         paths = [self.path, *(self.path.with_suffix(s) for s in (".shx", ".dbf", ".prj"))]
@@ -100,6 +104,7 @@ class LandMask:
 
     @staticmethod
     def _identity(path):
+        """File stat tuple used to detect replacement or modification."""
         stat = path.stat()
         return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
@@ -117,6 +122,7 @@ class LandMask:
             raise ValueError("Land mask inputs changed during processing")
 
     def _project(self, geometry):
+        """Project a lon/lat geometry to the equal-area CRS (EPSG:6933)."""
         return transform(
             geometry,
             lambda xy: np.column_stack(
@@ -136,6 +142,7 @@ class LandMask:
             raise ValueError("Invalid SAFE footprint: zero or nonfinite projected area")
         intersections = []
         for part in parts:
+            # Read only land polygons overlapping this part's bounding box.
             try:
                 _, _, geometries, _ = pyogrio.raw.read(
                     self.path, columns=[], bbox=part.bounds, force_2d=True
@@ -154,5 +161,6 @@ class LandMask:
                 intersection = self._project(land).intersection(projected_part)
                 if not intersection.is_empty:
                     intersections.append(intersection)
+        # Union first so overlapping land polygons are not counted twice.
         land_area = union_all(intersections).area
         return max(0.0, min(100.0, 100.0 * (1.0 - land_area / projected.area)))

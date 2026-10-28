@@ -13,6 +13,7 @@ from soba_matchups import __version__
 
 
 def file_identity(path):
+    """Return a file's resolved path, SHA-256 and size (hashed in 1 MiB blocks)."""
     path = Path(path).resolve()
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -22,6 +23,7 @@ def file_identity(path):
 
 
 def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
+    """Build one STAC Item: an imagette plus its matched reference points, grouped by granule."""
     assets = {
         "sar": {
             "href": imagette["href"],
@@ -39,9 +41,11 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
         }
     start = np.datetime64(imagette["ContentDate"]["Start"].removesuffix("Z"), "ns").astype("int64")
     end = np.datetime64(imagette["ContentDate"]["End"].removesuffix("Z"), "ns").astype("int64")
+    # Time offsets are measured from the imagette's mid-acquisition time.
     midpoint = start + (end - start) // 2
     differences = []
     matchups = []
+    # One asset and one matchup block per reference granule.
     for i, group in enumerate(groups, 1):
         key = f"reference_{i:03d}"
         assets[key] = {
@@ -65,6 +69,9 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
             {
                 "reference_asset": key,
                 "reference_file": group["reference_file"],
+                "reference_source": group["reference_source"],
+                "reference_version": group["reference_version"],
+                "reference_resolution": group["reference_resolution"],
                 "sarmatchup:other_id": group["reference_file"],
                 "reference_geometry": {
                     "type": "MultiPoint",
@@ -88,7 +95,7 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
             "sarmatchup:sar_instrument_mode": "WV",
             "sarmatchup:sar_product_type": fields["producttype"],
             "sarmatchup:sar_safe": product["Name"],
-            "sarmatchup:other_instrument": "HY-2B HSCAT",
+            "sarmatchup:other_instrument": groups[0]["reference_source"],
             "sarmatchup:other_type": "scatterometer",
             "sarmatchup:other_geometry_type": "MultiPoint",
             "sarmatchup:searching_window_hours": tolerance / 60,
@@ -113,6 +120,7 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
 
 
 def publish(output_dir, items, diagnostics, products, manifest):
+    """Write a complete run to a temporary directory, validate it, then rename it into place."""
     output_dir = Path(output_dir)
     if output_dir.exists() or output_dir.is_symlink():
         raise FileExistsError(f"Output already exists; choose a fresh directory: {output_dir}")
@@ -133,12 +141,14 @@ def publish(output_dir, items, diagnostics, products, manifest):
                     point_ids.add(point["record_id"])
             props = item["properties"]
             stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
-            filename = f"{stem}__IMG{props['soba:imagette_index']:03d}__HY2B_HSCAT"
+            suffix = props["sarmatchup:other_instrument"].upper().replace("-", "").replace(" ", "_")
+            filename = f"{stem}__IMG{props['soba:imagette_index']:03d}__{suffix}"
             if not re.fullmatch(r"[A-Za-z0-9_-]+", filename) or filename in filenames:
                 raise ValueError("Unsafe or duplicate STAC filename")
             filenames.add(filename)
             relative = f"items/{filename}.json"
             target = stage / relative
+            # Write, then read back and compare, so a truncated file is never published.
             target.write_text(json.dumps(item, indent=2, allow_nan=False) + "\n")
             if json.loads(target.read_text()) != json.loads(json.dumps(item, allow_nan=False)):
                 raise ValueError(f"Failed STAC Item readback: {identity}")

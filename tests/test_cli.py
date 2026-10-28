@@ -130,7 +130,6 @@ def test_knmi_cli_product_labels_and_actual_provenance(
         ("hscat", sensor),
         ("hy-2b", platform),
         ("25km", resolution),
-        ("2202", version),
     ]:
         text = text.replace(f'"{old}"', f'"{new}"')
     local_recipe.write_text(text)

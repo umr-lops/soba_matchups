@@ -7,7 +7,8 @@ from pathlib import Path
 import tomllib
 
 
-# Surveyed KNMI L2B identities; versions remain subject to per-file schema checks.
+# Surveyed KNMI L2B identities. Any processing version is accepted; each file is
+# checked against the expected variables, units and conventions instead.
 REFERENCE_PRODUCTS = {
     ("ascat", "metop-b", "25km"): ("MetOp-B ASCAT", "25.0 km"),
     ("ascat", "metop-b", "12.5km"): ("MetOp-B ASCAT", "12.5 km"),
@@ -17,10 +18,6 @@ REFERENCE_PRODUCTS = {
     ("hscat", "hy-2c", "25km"): ("HY-2C HSCAT", "25.0 km"),
     ("hscat", "hy-2d", "25km"): ("HY-2D HSCAT", "25.0 km"),
 }
-REFERENCE_VERSIONS = {
-    "ascat": {"2101", "3201", "3202", "3203", "3301", "3307"},
-    "hscat": {"2202", "4002", "4006", "4008"},
-}
 
 
 @dataclass(frozen=True)
@@ -28,7 +25,6 @@ class Recipe:
     """A validated recipe; every path is absolute and every value has been checked."""
 
     path: Path
-    reference_version: str
     reference_root: Path
     start_date: date
     stop_date: date
@@ -65,11 +61,6 @@ def load_recipe(path):
     product = (data["scat"], data["met"], data["resolution"])
     if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
         raise ValueError("Unsupported KNMI L2B sensor / platform / resolution combination")
-    version = data["reference_version"]
-    if not isinstance(version, str) or version not in REFERENCE_VERSIONS[data["scat"]]:
-        raise ValueError(
-            "Unsupported reference_version; select an explicit surveyed version string"
-        )
     # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]

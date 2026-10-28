@@ -34,7 +34,7 @@ include = [
     "tests",
     "examples",
     "README.md",
-    "STAC_SPEC.md",
+    "architecture_SAR_matchups_design_document.md",
     "LICENSE",
     "pyproject.toml",
     "environment.yml",

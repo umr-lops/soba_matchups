@@ -45,5 +45,5 @@ asset links in the output name the real files.
 
 ## Output format
 
-See [STAC_SPEC.md](STAC_SPEC.md). Usage notes are in the
+See [architecture_SAR_matchups_design_document.md](architecture_SAR_matchups_design_document.md). Usage notes are in the
 [documentation](https://soba-matchups.readthedocs.io/en/latest/).

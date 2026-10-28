@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Match Sentinel-1 WV L2 OCN imagettes with HY-2B HSCAT 25 km wind observations
-(processing version 2202). The output is one STAC JSON file per matched imagette.
+The output is one STAC JSON file per matched imagette.
 
 It reads local files: the SAR archive, the HSCAT granules and a land mask.
 

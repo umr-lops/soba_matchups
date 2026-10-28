@@ -96,7 +96,7 @@ def test_knmi_reader_decodes_surveyed_products(tmp_path, case, compressed):
         with path.open("rb") as src, gzip.open(zipped, "wb") as dst:
             shutil.copyfileobj(src, dst)
         path = zipped
-    ref = read_reference(path, case[2], expected_source=case[0], expected_resolution=case[1])
+    ref = read_reference(path, expected_source=case[0], expected_resolution=case[1])
     assert ref["flat"].tolist() == [0, 2, 3, 4, 5]
     assert ref["columns"] == 3
     np.testing.assert_allclose(ref["wind_speed"], [5, 6, 7, 8, 9])
@@ -116,7 +116,6 @@ def test_knmi_reader_decodes_surveyed_products(tmp_path, case, compressed):
     [
         ("source", "source"),
         ("resolution", "resolution"),
-        ("version", "version"),
         ("unknown_direction", "direction"),
         ("contradictory_direction", "direction"),
         ("longitude_units", "units"),
@@ -138,8 +137,6 @@ def test_knmi_reader_rejects_incompatible_files(tmp_path, change, message):
         ds.attrs["source"] = "HY-2D HSCAT"
     elif change == "resolution":
         ds.attrs["pixel_size_on_horizontal"] = "12.5 km"
-    elif change == "version":
-        ds.attrs["software_identification_wind"] = 4008
     elif change == "unknown_direction":
         del ds.wind_dir.attrs["standard_name"]
         del ds.attrs["comment"]
@@ -167,7 +164,7 @@ def test_knmi_reader_rejects_incompatible_files(tmp_path, change, message):
     path = tmp_path / "incompatible.nc"
     ds.to_netcdf(path)
     with pytest.raises(ValueError, match=message):
-        read_reference(path, "2202")
+        read_reference(path)
 
 
 def test_safe_matching_preserves_components_and_strict_boundaries():
@@ -252,9 +249,30 @@ def test_hscat_reader_keeps_original_indices_and_checks_product(tmp_path):
     compressed = tmp_path / "control.nc.gz"
     with path.open("rb") as src, gzip.open(compressed, "wb") as dst:
         shutil.copyfileobj(src, dst)
-    ref = read_reference(compressed, "2202")
+    ref = read_reference(compressed)
     assert ref["flat"].tolist() == [0, 2, 3]
     assert ref["columns"] == 2
     assert ref["coverage_end"].minute == 31
-    with pytest.raises(ValueError, match="version"):
-        read_reference(path, "other")
+    # A different processing version is accepted and recorded, never rejected.
+    assert read_reference(path)["version"] == "2202"
+
+
+def test_any_processing_version_is_accepted_and_recorded(tmp_path):
+    from soba_matchups.adapters.scat import read_reference
+
+    for version in (4008, 9999):
+        ds = knmi_dataset(KNMI_CASES[0])
+        ds.attrs["software_identification_wind"] = version
+        path = tmp_path / f"v{version}.nc"
+        ds.to_netcdf(path)
+        assert read_reference(path)["version"] == str(version)
+
+
+def test_missing_version_attribute_is_recorded_as_unknown(tmp_path):
+    from soba_matchups.adapters.scat import read_reference
+
+    ds = knmi_dataset(KNMI_CASES[0])
+    del ds.attrs["software_identification_wind"]
+    path = tmp_path / "no_version.nc"
+    ds.to_netcdf(path)
+    assert read_reference(path)["version"] == "unknown"

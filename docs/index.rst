@@ -7,7 +7,7 @@ soba_matchups
    stac-format
 
 Match local Sentinel-1 WV L2 OCN imagettes with HY-2B HSCAT 25 km observations
-(processing version 2202). No L1 input, catalogue API, cache or credentials.
+No L1 input, catalogue API, cache or credentials.
 
 Run
 ---

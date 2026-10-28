@@ -57,7 +57,7 @@ def match_cells(product, reference, tolerance_minutes):
     return indices[inside]
 
 
-def read_reference(path, version, *, expected_source="HY-2B HSCAT", expected_resolution="25.0 km"):
+def read_reference(path, *, expected_source="HY-2B HSCAT", expected_resolution="25.0 km"):
     """Load one KNMI L2B granule (.nc or .nc.gz), check its metadata and keep valid wind cells."""
     path = Path(path)
     with ExitStack() as stack:
@@ -71,8 +71,6 @@ def read_reference(path, version, *, expected_source="HY-2B HSCAT", expected_res
         # Confirm this is the expected product before trusting its values.
         if ds.attrs.get("source") != expected_source:
             raise ValueError(f"Unsupported reference source in {path}")
-        if str(ds.attrs.get("software_identification_wind")) != version:
-            raise ValueError(f"Reference version mismatch in {path}")
         if ds.attrs.get("pixel_size_on_horizontal") != expected_resolution:
             raise ValueError(f"Reference resolution mismatch in {path}")
         keys = ["lon", "lat", "time", "wind_speed", "wind_dir", "wvc_quality_flag", "ice_prob"]
@@ -141,7 +139,8 @@ def read_reference(path, version, *, expected_source="HY-2B HSCAT", expected_res
         result.update(
             path=path,
             source=ds.attrs["source"],
-            version=str(ds.attrs["software_identification_wind"]),
+            # Recorded for provenance only; the version is not used to accept or reject a file.
+            version=str(ds.attrs.get("software_identification_wind", "unknown")),
             resolution=ds.attrs["pixel_size_on_horizontal"],
             flat=np.flatnonzero(valid),
             columns=ds.sizes["NUMCELLS"],

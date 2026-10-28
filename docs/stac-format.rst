@@ -37,11 +37,9 @@ Recipes select an explicit ``scat`` / ``met`` / ``resolution`` combination:
 * ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
 
 Other combinations, including ``metop-d``, are rejected, not substituted.
-``reference_version`` is a required string matching the file's global
-``software_identification_wind`` attribute exactly. Surveyed ASCAT versions are
-``2101``, ``3201``, ``3202``, ``3203``, ``3301`` and ``3307``; HSCAT versions are
-``2202``, ``4002``, ``4006`` and ``4008``. These sensor-specific allowlists are
-not assertions that every version exists for every platform/resolution.
+Any processing version is accepted, so the recipe has no version key. Each file's
+global ``software_identification_wind`` is recorded in the manifest and Items, and
+``manifest.reference_versions`` lists every version used in the run.
 
 Every file must also pass source, pixel-size, variable/dimension, unit and direction
 checks. The common reader derives grid sizes dynamically and applies CF scale,

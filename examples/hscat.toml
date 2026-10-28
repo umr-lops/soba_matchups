@@ -1,7 +1,6 @@
 scat = "hscat"
 met = "hy-2b"
 resolution = "25km"
-reference_version = "2202"
 
 reference_root = "/path/to/knmi/satellite/l2b"
 land_mask = "/opt/soba_matchups/land/land_polygons.shp"  # In the SIF; edit for local runs.

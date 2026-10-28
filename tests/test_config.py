@@ -13,7 +13,6 @@ def test_toml_recipe_preserves_legacy_keys_and_resolves_relative_paths(tmp_path)
     recipe.write_text("""scat = "hscat"
 met = "hy-2b"
 resolution = "25km"
-reference_version = "2202"
 reference_root = "reference"
 start_date = "2020-01-10"
 stop_date = "2020-01-11"
@@ -72,12 +71,7 @@ def test_available_knmi_products(local_recipe, sensor, platform, resolution, ver
         text = text.replace(f'"{old}"', f'"{new}"')
     local_recipe.write_text(text)
     config = load_recipe(local_recipe)
-    assert (config.scat, config.met, config.resolution, config.reference_version) == (
-        sensor,
-        platform,
-        resolution,
-        version,
-    )
+    assert (config.scat, config.met, config.resolution) == (sensor, platform, resolution)
 
 
 @pytest.mark.parametrize(
@@ -85,13 +79,12 @@ def test_available_knmi_products(local_recipe, sensor, platform, resolution, ver
     [
         ('met = "hy-2b"', 'met = "metop-d"'),
         ('resolution = "25km"', 'resolution = "12.5km"'),
-        ('reference_version = "2202"', "reference_version = 2202"),
-        ('reference_version = "2202"', 'reference_version = "9999"'),
+        ('resolution = "25km"', 'resolution = "25km"\nreference_version = "2202"'),
     ],
 )
 def test_invalid_knmi_selection(local_recipe, old, new):
     from soba_matchups.config import load_recipe
 
     local_recipe.write_text(local_recipe.read_text().replace(old, new))
-    with pytest.raises(ValueError, match="supported|version"):
+    with pytest.raises(ValueError, match="supported|reference_version"):
         load_recipe(local_recipe)

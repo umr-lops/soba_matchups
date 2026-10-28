@@ -46,9 +46,7 @@ def reference_inputs(recipe):
         # Hash each granule so the manifest records exactly what was read.
         identity = file_identity(path)
         source, resolution = REFERENCE_PRODUCTS[(recipe.scat, recipe.met, recipe.resolution)]
-        ref = scat.read_reference(
-            path, recipe.reference_version, expected_source=source, expected_resolution=resolution
-        )
+        ref = scat.read_reference(path, expected_source=source, expected_resolution=resolution)
         if not recipe.start_date <= ref["granule_start_day"] < recipe.stop_date:
             raise ValueError(f"Granule start day outside requested range: {path}")
         ref["identity"] = identity
@@ -212,6 +210,8 @@ def run(recipe):
             "used_as_filter": False,
         },
         "reference_files": len(refs),
+        # Versions are recorded, not enforced; this lists every one used in the run.
+        "reference_versions": sorted({ref["version"] for ref in refs}),
         "reference_finite_wind_cells": sum(len(ref["flat"]) for ref in refs),
         "sar_products_processed": len(products),
         "safes_without_candidate_cells": safes_without_candidates,

@@ -153,7 +153,6 @@ def local_recipe(tmp_path):
     recipe.write_text("""scat = "hscat"
 met = "hy-2b"
 resolution = "25km"
-reference_version = "2202"
 reference_root = "reference"
 sar_archive_root = "esa"
 start_date = "2026-06-29"

@@ -73,10 +73,6 @@ def imagette_item(product, imagette, fields, groups, tolerance):
                 "reference_version": group["reference_version"],
                 "reference_resolution": group["reference_resolution"],
                 "sarmatchup:other_id": group["reference_file"],
-                "reference_geometry": {
-                    "type": "MultiPoint",
-                    "coordinates": [[p["ref_lon"], p["ref_lat"]] for p in points],
-                },
                 "points": points,
             }
         )

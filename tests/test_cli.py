@@ -75,10 +75,7 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert props["sarmatchup:n_coloc_points"] == sum(len(g["points"]) for g in groups)
         for group in groups:
             assert group["sarmatchup:other_id"] == group["reference_file"]
-            assert group["reference_geometry"] == {
-                "type": "MultiPoint",
-                "coordinates": [[p["ref_lon"], p["ref_lat"]] for p in group["points"]],
-            }
+            assert "reference_geometry" not in group
             for point in group["points"]:
                 assert point["delta_diff_time_minutes"] == -0.5 / 60
         assert props["sarmatchup:delta_diff_time_minutes_min"] == -0.5 / 60
@@ -172,7 +169,7 @@ def test_knmi_cli_product_labels_and_actual_provenance(
     assert main(["run", "--recipe", str(local_recipe)]) == 0
     result = local_recipe.parent / "result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["schema_version"] == 8
+    assert manifest["schema_version"] == 9
     assert "land_mask" not in manifest
     assert manifest["stac_items"] == 2
     assert manifest["matchup_imagette_cell_rows"] == 8

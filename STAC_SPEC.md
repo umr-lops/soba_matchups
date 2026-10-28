@@ -1,7 +1,7 @@
 # soba_matchups output specification
 
 This file specifies what `soba_matchups run` writes: STAC 1.0.0 Items and three
-run files. The run manifest layout is `schema_version` 8.
+run files. The run manifest layout is `schema_version` 9.
 
 The output is a matchup index. Each Item links one Sentinel-1 WV OCN imagette to
 the KNMI L2B scatterometer (ASCAT or HSCAT) observations that fall inside it. It is
@@ -95,7 +95,7 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:sar_safe` | Full parent SAFE name. |
 | `sarmatchup:other_instrument` | Validated reference source, for example `HY-2B HSCAT`. |
 | `sarmatchup:other_type` | `scatterometer` |
-| `sarmatchup:other_geometry_type` | `MultiPoint`: the retained observation centres, not a swath. |
+| `sarmatchup:other_geometry_type` | `MultiPoint`: the reference observations are points, given by `ref_lon` and `ref_lat`, not a swath. |
 | `sarmatchup:searching_window_hours` | Time tolerance in hours, applied on each side of the acquisition interval. |
 | `sarmatchup:lib_version` | `soba_matchups` version. |
 | `sarmatchup:n_coloc_points` | Number of retained associations across all granule groups. |
@@ -125,7 +125,6 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | `reference_version` | `software_identification_wind` attribute, as a string. |
 | `reference_resolution` | `pixel_size_on_horizontal` attribute, for example `12.5 km`. |
 | `sarmatchup:other_id` | Same value as `reference_file`, scoped to this group. |
-| `reference_geometry` | GeoJSON `MultiPoint`, one `[longitude, latitude]` per retained point, in `points` order. Not a granule footprint. |
 | `points` | Matched observations, section 5. |
 
 ## 5. Points
@@ -194,3 +193,18 @@ Messages from `stac-check` on a normal Item:
 - "Coordinates may be in the wrong order". This is a heuristic that fires for any
   position with |longitude| > 90 and |longitude| > 2 × |latitude|. The order is
   `[longitude, latitude]`.
+
+## 9. Differences from the SAR Matchup draft
+
+- One Item groups all matched granules of an imagette. The draft treats each
+  SAR/reference-granule pair as a separate event.
+- Reference ids belong to granule groups, and the observations are points with
+  `ref_lon` and `ref_lat`. The tool does not invent scatterometer swath polygons.
+- Each point carries its signed time difference, and the Item carries the minimum
+  and maximum. The draft has a single `sarmatchup:delta_diff_time_minutes`.
+- `geometry` accepts `MultiPolygon` for dateline imagettes.
+- `start_datetime` and `end_datetime` describe the SAR acquisition, not the range of
+  reference times.
+- SLC, GRD and RAW products, external catalogue URLs and availability flags are
+  absent, and so are WKT copies of the footprint.
+- The draft's extension URL is a placeholder. `stac_extensions` is empty.

@@ -193,18 +193,3 @@ Messages from `stac-check` on a normal Item:
 - "Coordinates may be in the wrong order". This is a heuristic that fires for any
   position with |longitude| > 90 and |longitude| > 2 × |latitude|. The order is
   `[longitude, latitude]`.
-
-## 9. Differences from the SAR Matchup draft
-
-- One Item groups all matched granules of an imagette. The draft treats each
-  SAR/reference-granule pair as a separate event.
-- Reference ids belong to granule groups, and the observations are points with
-  `ref_lon` and `ref_lat`. The tool does not invent scatterometer swath polygons.
-- Each point carries its signed time difference, and the Item carries the minimum
-  and maximum. The draft has a single `sarmatchup:delta_diff_time_minutes`.
-- `geometry` accepts `MultiPolygon` for dateline imagettes.
-- `start_datetime` and `end_datetime` describe the SAR acquisition, not the range of
-  reference times.
-- SLC, GRD and RAW products, external catalogue URLs and availability flags are
-  absent, and so are WKT copies of the footprint.
-- The draft's extension URL is a placeholder. `stac_extensions` is empty.

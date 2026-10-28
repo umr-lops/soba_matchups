@@ -32,9 +32,13 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert item["stac_version"] == "1.0.0"
         assert item["assets"]["sar"]["href"].startswith("file:")
         assert (
-            item["properties"]["soba:mapping_policy"] == "local_ocn_geolocation_to_manifest_frame"
+            item["properties"]["sarmatchup:mapping_policy"]
+            == "local_ocn_geolocation_to_manifest_frame"
         )
-        groups = item["properties"]["soba:matchups"]
+        groups = item["properties"]["sarmatchup:matchups"]
+        # Reference assets point at the configured absolute root, not a container mount.
+        root = (local_recipe.parent / "reference").resolve().as_uri()
+        assert item["assets"]["reference_001"]["href"].startswith(root + "/")
         assert len(groups) == 2
         points.extend(point for group in groups for point in group["points"])
     assert len({p["record_id"] for p in points}) == 8
@@ -49,10 +53,14 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert props["sarmatchup:sar_instrument_mode"] == "WV"
         assert props["sarmatchup:sar_product_type"] == "OCN"
         assert props["sarmatchup:sar_safe"].endswith(".SAFE")
+        assert not [key for key in props if key.startswith("soba:")]
         assert not {
             "platform",
-            "soba:safe_name",
-            "soba:producttype",
+            "sarmatchup:sea_percent",
+            "sarmatchup:safe_id",
+            "sarmatchup:safe_id_source",
+            "sarmatchup:time_source",
+            "sarmatchup:time_tolerance_minutes",
             "sarmatchup:sar_ocn_safe",
             "sarmatchup:sar_start_datetime",
             "sarmatchup:sar_stop_datetime",
@@ -63,7 +71,7 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert props["sarmatchup:other_geometry_type"] == "MultiPoint"
         assert props["sarmatchup:searching_window_hours"] == 1 / 60
         assert props["sarmatchup:lib_version"] == __version__
-        groups = props["soba:matchups"]
+        groups = props["sarmatchup:matchups"]
         assert props["sarmatchup:n_coloc_points"] == sum(len(g["points"]) for g in groups)
         for group in groups:
             assert group["sarmatchup:other_id"] == group["reference_file"]
@@ -77,7 +85,8 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert props["sarmatchup:delta_diff_time_minutes_max"] == -0.5 / 60
         assert "sarmatchup:delta_diff_time_minutes" not in props
         stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
-        assert path.name == f"{stem}__IMG{props['soba:imagette_index']:03d}__HY2B_HSCAT.json"
+        index = props["sarmatchup:imagette_index"]
+        assert path.name == f"{stem}__IMG{index:03d}__HY2B_HSCAT_25KM.json"
         assert item["id"] != path.stem
     before = (result / "manifest.json").read_bytes()
     assert main(["run", "--recipe", str(recipe)]) == 2
@@ -109,13 +118,13 @@ def test_coarse_candidates_preserve_quantized_header_boundary_match(local_recipe
 @pytest.mark.parametrize(
     "sensor,platform,resolution,version,source,pixel,suffix",
     [
-        ("ascat", "metop-b", "25km", "3202", "MetOp-B ASCAT", "25.0 km", "METOPB_ASCAT"),
-        ("ascat", "metop-b", "12.5km", "2101", "MetOp-B ASCAT", "12.5 km", "METOPB_ASCAT"),
-        ("ascat", "metop-b", "5.7km", "3307", "MetOp-B ASCAT", "5.7 km", "METOPB_ASCAT"),
-        ("ascat", "metop-c", "12.5km", "3203", "MetOp-C ASCAT", "12.5 km", "METOPC_ASCAT"),
-        ("hscat", "hy-2b", "25km", "4008", "HY-2B HSCAT", "25.0 km", "HY2B_HSCAT"),
-        ("hscat", "hy-2c", "25km", "4006", "HY-2C HSCAT", "25.0 km", "HY2C_HSCAT"),
-        ("hscat", "hy-2d", "25km", "4002", "HY-2D HSCAT", "25.0 km", "HY2D_HSCAT"),
+        ("ascat", "metop-b", "25km", "3202", "MetOp-B ASCAT", "25.0 km", "METOPB_ASCAT_25KM"),
+        ("ascat", "metop-b", "12.5km", "2101", "MetOp-B ASCAT", "12.5 km", "METOPB_ASCAT_12P5KM"),
+        ("ascat", "metop-b", "5.7km", "3307", "MetOp-B ASCAT", "5.7 km", "METOPB_ASCAT_5P7KM"),
+        ("ascat", "metop-c", "12.5km", "3203", "MetOp-C ASCAT", "12.5 km", "METOPC_ASCAT_12P5KM"),
+        ("hscat", "hy-2b", "25km", "4008", "HY-2B HSCAT", "25.0 km", "HY2B_HSCAT_25KM"),
+        ("hscat", "hy-2c", "25km", "4006", "HY-2C HSCAT", "25.0 km", "HY2C_HSCAT_25KM"),
+        ("hscat", "hy-2d", "25km", "4002", "HY-2D HSCAT", "25.0 km", "HY2D_HSCAT_25KM"),
     ],
 )
 def test_knmi_cli_product_labels_and_actual_provenance(
@@ -163,7 +172,8 @@ def test_knmi_cli_product_labels_and_actual_provenance(
     assert main(["run", "--recipe", str(local_recipe)]) == 0
     result = local_recipe.parent / "result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["schema_version"] == 7
+    assert manifest["schema_version"] == 8
+    assert "land_mask" not in manifest
     assert manifest["stac_items"] == 2
     assert manifest["matchup_imagette_cell_rows"] == 8
     for entry in manifest["reference_inputs"]:
@@ -172,7 +182,7 @@ def test_knmi_cli_product_labels_and_actual_provenance(
         assert path.name.endswith(f"__{suffix}.json")
         item = json.loads(path.read_text())
         assert item["properties"]["sarmatchup:other_instrument"] == source
-        for group in item["properties"]["soba:matchups"]:
+        for group in item["properties"]["sarmatchup:matchups"]:
             assert (
                 group["reference_source"],
                 group["reference_version"],

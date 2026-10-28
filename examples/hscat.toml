@@ -3,8 +3,6 @@ met = "hy-2b"
 resolution = "25km"
 
 reference_root = "/path/to/knmi/satellite/l2b"
-land_mask = "/opt/soba_matchups/land/land_polygons.shp"  # In the SIF; edit for local runs.
-land_mask_source = "OSM land-polygons-split-4326 (ODbL)"
 start_date = "2020-01-10"
 stop_date = "2020-01-11"  # Exclusive; selects reference-granule start days.
 sar_missions = ["S1A", "S1B"]

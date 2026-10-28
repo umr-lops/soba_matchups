@@ -32,11 +32,9 @@ class Recipe:
     time_tolerance_minutes: float
     sar_archive_root: Path
     output_dir: Path
-    land_mask: Path
     scat: str
     met: str
     resolution: str
-    land_mask_source: str = "local file; origin not asserted"
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -51,9 +49,8 @@ def load_recipe(path):
     with path.open("rb") as stream:
         data = tomllib.load(stream)
     # Reject unknown keys and missing required keys.
-    optional = {"land_mask_source"}
-    required = set(Recipe.__dataclass_fields__) - {"path"} - optional
-    unknown = set(data) - required - optional
+    required = set(Recipe.__dataclass_fields__) - {"path"}
+    unknown = set(data) - required
     if unknown or required - set(data):
         raise ValueError(
             f"Unknown recipe keys: {sorted(unknown)}; missing keys: {sorted(required - set(data))}"
@@ -93,18 +90,11 @@ def load_recipe(path):
         or len(set(missions)) != len(missions)
     ):
         raise ValueError("sar_missions must contain distinct supported Sentinel-1 missions")
-    if (
-        not isinstance(data.get("land_mask_source", "local file; origin not asserted"), str)
-        or not data.get("land_mask_source", "local file; origin not asserted").strip()
-    ):
-        raise ValueError("land_mask_source must be a nonempty provenance label")
     # Make every path absolute, relative to the recipe file.
-    for key in ["reference_root", "sar_archive_root", "output_dir", "land_mask"]:
+    for key in ["reference_root", "sar_archive_root", "output_dir"]:
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
         data[key] = (path.parent / data[key]).resolve()
-    if not data["land_mask"].is_file():
-        raise ValueError(f"Land mask does not exist: {data['land_mask']}")
     # Inputs must exist, and results must never be written inside them.
     for key in ["reference_root", "sar_archive_root"]:
         if not data[key].is_dir():

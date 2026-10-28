@@ -22,7 +22,7 @@ def file_identity(path):
     return {"path": str(path), "sha256": digest.hexdigest(), "bytes": path.stat().st_size}
 
 
-def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
+def imagette_item(product, imagette, fields, groups, tolerance):
     """Build one STAC Item: an imagette plus its matched reference points, grouped by granule."""
     assets = {
         "sar": {
@@ -37,7 +37,7 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
             "href": Path(product["manifest_identity"]["path"]).as_uri(),
             "type": "application/xml",
             "roles": ["metadata"],
-            "soba:sha256": product["manifest_identity"]["sha256"],
+            "sarmatchup:sha256": product["manifest_identity"]["sha256"],
         }
     start = np.datetime64(imagette["ContentDate"]["Start"].removesuffix("Z"), "ns").astype("int64")
     end = np.datetime64(imagette["ContentDate"]["End"].removesuffix("Z"), "ns").astype("int64")
@@ -57,7 +57,7 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
             ),
             "roles": ["data"],
             "title": group["reference_file"],
-            "soba:sha256": group["reference_sha256"],
+            "sarmatchup:sha256": group["reference_sha256"],
         }
         points = []
         for point in group["points"]:
@@ -103,20 +103,31 @@ def imagette_item(product, imagette, fields, groups, sea_percent, tolerance):
             "sarmatchup:n_coloc_points": len(differences),
             "sarmatchup:delta_diff_time_minutes_min": min(differences),
             "sarmatchup:delta_diff_time_minutes_max": max(differences),
-            "soba:safe_id": product["Id"],
-            "soba:imagette_index": imagette["index"],
-            "soba:measurement_name": imagette["Name"],
-            "soba:polarization": fields["polarization"],
-            "soba:sea_percent": sea_percent,
-            "soba:mapping_policy": imagette["mapping_policy"],
-            "soba:safe_id_source": "SHA256 of SAFE directory name; not a catalogue UUID",
-            "soba:time_source": "OCN firstMeasurementTime / lastMeasurementTime UTC attributes",
-            "soba:time_tolerance_minutes": tolerance,
-            "soba:matchups": matchups,
+            "sarmatchup:imagette_index": imagette["index"],
+            "sarmatchup:measurement_name": imagette["Name"],
+            "sarmatchup:polarization": fields["polarization"],
+            "sarmatchup:mapping_policy": imagette["mapping_policy"],
+            "sarmatchup:matchups": matchups,
         },
         "assets": assets,
         "links": [],
     }
+
+
+def item_filename(item):
+    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<INSTRUMENT>_<RESOLUTION>.
+
+    Example (SAFE name, imagette 4, HY-2B HSCAT at 25 km):
+    S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63__IMG004__HY2B_HSCAT_25KM
+    The instrument is the validated reference source (HY-2B HSCAT -> HY2B_HSCAT). The
+    resolution is its pixel size in km, with the decimal point written as P (12.5 km -> 12P5KM).
+    """
+    props = item["properties"]
+    stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
+    instrument = props["sarmatchup:other_instrument"].upper().replace("-", "").replace(" ", "_")
+    pixel_size = props["sarmatchup:matchups"][0]["reference_resolution"]
+    resolution = f"{float(pixel_size.split()[0]):g}".replace(".", "P") + "KM"
+    return f"{stem}__IMG{props['sarmatchup:imagette_index']:03d}__{instrument}_{resolution}"
 
 
 def publish(output_dir, items, diagnostics, products, manifest):
@@ -134,15 +145,12 @@ def publish(output_dir, items, diagnostics, products, manifest):
             if not re.fullmatch(r"[A-Za-z0-9_-]+", identity) or identity in item_ids:
                 raise ValueError("Unsafe or duplicate STAC Item identity")
             item_ids.add(identity)
-            for group in item["properties"]["soba:matchups"]:
+            for group in item["properties"]["sarmatchup:matchups"]:
                 for point in group["points"]:
                     if point["record_id"] in point_ids:
                         raise ValueError("Conflicting duplicate matchup identities")
                     point_ids.add(point["record_id"])
-            props = item["properties"]
-            stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
-            suffix = props["sarmatchup:other_instrument"].upper().replace("-", "").replace(" ", "_")
-            filename = f"{stem}__IMG{props['soba:imagette_index']:03d}__{suffix}"
+            filename = item_filename(item)
             if not re.fullmatch(r"[A-Za-z0-9_-]+", filename) or filename in filenames:
                 raise ValueError("Unsafe or duplicate STAC filename")
             filenames.add(filename)

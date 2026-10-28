@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from soba_matchups.output import imagette_item, publish
+from soba_matchups.output import imagette_item, item_filename, publish
 
 
 def item():
@@ -33,25 +33,34 @@ def item():
         }
     ]
     return imagette_item(
-        product, imagette, {"polarization": "VV", "producttype": "OCN"}, groups, 100, 60
+        product, imagette, {"polarization": "VV", "producttype": "OCN"}, groups, 60
     )
 
 
 def test_signed_time_differences_and_summary_preserve_observations():
     value = item()
     props = value["properties"]
-    points = props["soba:matchups"][0]["points"]
+    points = props["sarmatchup:matchups"][0]["points"]
     assert [p["delta_diff_time_minutes"] for p in points] == [-1 / 60, 1 / 60]
     assert props["sarmatchup:delta_diff_time_minutes_min"] == -1 / 60
     assert props["sarmatchup:delta_diff_time_minutes_max"] == 1 / 60
     assert props["sarmatchup:n_coloc_points"] == 2
 
 
+def test_filename_names_instrument_and_resolution():
+    value = item()
+    stem = "S1A_WV_OCN__2SSV_EXAMPLE__IMG001__HY2B_HSCAT"
+    group = value["properties"]["sarmatchup:matchups"][0]
+    for pixel, expected in [("25.0 km", "25KM"), ("12.5 km", "12P5KM"), ("5.7 km", "5P7KM")]:
+        group["reference_resolution"] = pixel
+        assert item_filename(value) == f"{stem}_{expected}"
+
+
 def test_filename_collision_does_not_publish_partial_output(tmp_path):
     first = item()
     second = copy.deepcopy(first)
     second["id"] = "different_identity"
-    for point in second["properties"]["soba:matchups"][0]["points"]:
+    for point in second["properties"]["sarmatchup:matchups"][0]["points"]:
         point["record_id"] += "different"
     output = tmp_path / "result"
     with pytest.raises(ValueError, match="duplicate STAC filename"):

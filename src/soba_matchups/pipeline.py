@@ -1,4 +1,4 @@
-"""HSCAT coverage -> SAFE candidates -> imagette matching -> STAC publication."""
+"""KNMI L2B coverage -> SAFE candidates -> imagette matching -> STAC publication."""
 
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -8,12 +8,19 @@ import numpy as np
 
 from soba_matchups import __version__
 from soba_matchups.adapters import scat
+from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.land_fraction import LandMask
 from soba_matchups.output import file_identity, imagette_item, publish
-from soba_matchups.sar_metadata import decode_safe_name, discover_local, verify_local_inputs
+from soba_matchups.sar_metadata import (
+    OCN_HEADER_PRECISION_SECONDS,
+    decode_safe_name,
+    discover_local,
+    verify_local_inputs,
+)
 
 
 def reference_inputs(recipe):
+    """Read and validate every reference granule for the requested days (stop_date exclusive)."""
     paths = []
     day = recipe.start_date
     while day < recipe.stop_date:
@@ -26,6 +33,7 @@ def reference_inputs(recipe):
             / str(day.year)
             / day.strftime("%j")
         )
+        # A day folder holds plain or gzipped NetCDF granules.
         selected = sorted([*directory.glob("*.nc"), *directory.glob("*.nc.gz")])
         if not selected:
             raise ValueError(f"No reference files for requested day: {directory}")
@@ -35,8 +43,12 @@ def reference_inputs(recipe):
         raise ValueError("Repeated reference filenames; select one unambiguous product bundle")
     references = []
     for path in paths:
+        # Hash each granule so the manifest records exactly what was read.
         identity = file_identity(path)
-        ref = scat.read_reference(path, recipe.reference_version)
+        source, resolution = REFERENCE_PRODUCTS[(recipe.scat, recipe.met, recipe.resolution)]
+        ref = scat.read_reference(
+            path, recipe.reference_version, expected_source=source, expected_resolution=resolution
+        )
         if not recipe.start_date <= ref["granule_start_day"] < recipe.stop_date:
             raise ValueError(f"Granule start day outside requested range: {path}")
         ref["identity"] = identity
@@ -45,6 +57,10 @@ def reference_inputs(recipe):
 
 
 def run(recipe):
+    """Match reference points to SAR imagettes and publish one STAC Item per matched imagette.
+
+    Returns the run manifest. The output directory must not exist yet.
+    """
     if recipe.output_dir.exists() or recipe.output_dir.is_symlink():
         raise FileExistsError(
             f"Output already exists; choose a fresh directory: {recipe.output_dir}"
@@ -52,12 +68,15 @@ def run(recipe):
     refs = reference_inputs(recipe)
     land = LandMask(recipe.land_mask)
     delta = timedelta(minutes=recipe.time_tolerance_minutes)
+    precision = timedelta(seconds=OCN_HEADER_PRECISION_SECONDS)
 
     def iso(t):
+        """Format a UTC datetime with a trailing Z."""
         return t.isoformat().replace("+00:00", "Z")
 
-    start = iso(min(ref["coverage_start"] for ref in refs) - delta)
-    end = iso(max(ref["coverage_end"] for ref in refs) + delta)
+    # Search window: reference coverage widened by the time tolerance and header rounding.
+    start = iso(min(ref["coverage_start"] for ref in refs) - delta - precision)
+    end = iso(max(ref["coverage_end"] for ref in refs) + delta + precision)
     products, discovery = discover_local(start, end, recipe.sar_missions, recipe.sar_archive_root)
     items, diagnostics = [], []
     seen_points = set()
@@ -65,14 +84,22 @@ def run(recipe):
     candidate_cells = 0
 
     def number(x):
+        """Return a float, or None for NaN so the JSON stays valid."""
         return float(x) if np.isfinite(x) else None
 
+    # Stage 1 tests each whole SAFE; stage 2 tests each imagette on its own footprint and clock.
     for product in products:
         fields = decode_safe_name(product["Name"])
         if fields["producttype"] != "OCN":
             raise ValueError("SAR product type does not match the WV OCN discovery request")
         candidates = [
-            (ref, scat.match_cells(product, ref, recipe.time_tolerance_minutes)) for ref in refs
+            (
+                ref,
+                scat.match_cells(
+                    product, ref, recipe.time_tolerance_minutes + OCN_HEADER_PRECISION_SECONDS / 60
+                ),
+            )
+            for ref in refs
         ]
         candidate_cells += sum(len(indices) for _, indices in candidates)
         if not any(len(indices) for _, indices in candidates):
@@ -95,6 +122,7 @@ def run(recipe):
                 for i in indices:
                     flat = int(ref["flat"][i])
                     row_index, cell_index = divmod(flat, ref["columns"])
+                    # One stable ID per (imagette, granule, cell); repeats are dropped and counted.
                     token = f"{imagette['Id']}|{ref['identity']['sha256']}|{flat}"
                     identity = hashlib.sha256(token.encode()).hexdigest()
                     if identity in seen_points:
@@ -130,6 +158,9 @@ def run(recipe):
                             "reference_file": ref["path"].name,
                             "reference_path": str(ref["path"]),
                             "reference_sha256": ref["identity"]["sha256"],
+                            "reference_source": ref["source"],
+                            "reference_version": ref["version"],
+                            "reference_resolution": ref["resolution"],
                             "points": points,
                         }
                     )
@@ -144,13 +175,15 @@ def run(recipe):
                         recipe.time_tolerance_minutes,
                     )
                 )
+    # Confirm no input changed while matching, before anything is published.
     verify_local_inputs(discovery)
     land.verify_unchanged()
     for ref in refs:
         if file_identity(ref["path"]) != ref["identity"]:
             raise ValueError(f"Input changed during processing: {ref['path']}")
+    # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 6,
+        "schema_version": 7,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -168,7 +201,10 @@ def run(recipe):
             }
             for ref in refs
         ],
-        "reference_inputs": [ref["identity"] for ref in refs],
+        "reference_inputs": [
+            {**ref["identity"], **{key: ref[key] for key in ["source", "version", "resolution"]}}
+            for ref in refs
+        ],
         "land_mask": {
             **land.provenance,
             "source": recipe.land_mask_source,
@@ -193,6 +229,8 @@ def run(recipe):
             "space": "strict individual imagette footprint point containment",
             "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
             "time_source": "OCN firstMeasurementTime / lastMeasurementTime UTC attributes",
+            "candidate_padding_seconds": OCN_HEADER_PRECISION_SECONDS,
+            "header_precision": "whole-second NC headers use outward-rounded manifest bounds",
             "time_tolerance_minutes": recipe.time_tolerance_minutes,
             "retention": "all finite wind vectors; retain quality/ice flags without filtering",
         },

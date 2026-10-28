@@ -23,6 +23,9 @@ def item():
             "reference_file": "synthetic-reference.nc",
             "reference_path": "/synthetic-reference.nc",
             "reference_sha256": "synthetic",
+            "reference_source": "HY-2B HSCAT",
+            "reference_version": "2202",
+            "reference_resolution": "25.0 km",
             "points": [
                 {"record_id": str(i), "ref_time_utc": t, "ref_lon": 0.5, "ref_lat": 0.5}
                 for i, t in enumerate(["2026-06-29T12:00:01Z", "2026-06-29T12:00:03Z"])

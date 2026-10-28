@@ -1,4 +1,6 @@
 exclude: ^(assets/|vendor/)
+# `pre-commit install` then sets up both the commit and the push hooks.
+default_install_hook_types: [pre-commit, pre-push]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -16,6 +18,8 @@ repos:
     rev: v0.17.1
     hooks:
       - id: ruff
+        # Lint (including the docstring rules) on commit and again before every push.
+        stages: [pre-commit, pre-push]
         args: [--fix]
 
   - repo: local

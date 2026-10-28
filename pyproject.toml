@@ -40,4 +40,8 @@ line-length = 100
 extend-exclude = ["assets", "vendor"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
+# D1: every public module, class, function and method needs a docstring.
+select = ["E", "F", "W", "D1"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D1"]

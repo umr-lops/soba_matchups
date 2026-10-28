@@ -3,7 +3,7 @@ STAC output format
 
 Each JSON in ``items/`` is a standalone STAC 1.0.0 Item for one matched
 Sentinel-1 WV OCN imagette. It contains every retained association with the
-selected HY-2B HSCAT granules. An imagette without matches produces no Item.
+selected KNMI L2B ASCAT or HSCAT granules. An imagette without matches produces no Item.
 This is a matchup index with reference measurements, not an enriched co-aligned
 Parquet or NetCDF product.
 
@@ -22,7 +22,50 @@ The SAFE name identifies the parent product, including its processing checksum;
 ``IMG001`` is the numeric identifier from the measurement filename, padded to
 three digits. It does not assign the footprint by sequence. The times in the
 filename belong to the parent SAFE; the JSON contains the imagette's own times.
-``HY2B_HSCAT`` identifies the currently supported reference product.
+The suffix identifies the reference platform and sensor: ``HY2B_HSCAT``,
+``HY2C_HSCAT``, ``HY2D_HSCAT``, ``METOPB_ASCAT`` or ``METOPC_ASCAT``.
+Resolution and processing version are recorded in provenance rather than filenames;
+use separate output directories for different selections.
+
+Offline reference support
+-------------------------
+
+Recipes select an explicit ``scat`` / ``met`` / ``resolution`` combination:
+
+* ``ascat`` / ``metop-b`` / ``25km``, ``12.5km`` or ``5.7km``.
+* ``ascat`` / ``metop-c`` / ``12.5km``.
+* ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
+
+Other combinations, including ``metop-d``, are rejected, not substituted.
+``reference_version`` is a required string matching the file's global
+``software_identification_wind`` attribute exactly. Surveyed ASCAT versions are
+``2101``, ``3201``, ``3202``, ``3203``, ``3301`` and ``3307``; HSCAT versions are
+``2202``, ``4002``, ``4006`` and ``4008``. These sensor-specific allowlists are
+not assertions that every version exists for every platform/resolution.
+
+Every file must also pass source, pixel-size, variable/dimension, unit and direction
+checks. The common reader derives grid sizes dynamically and applies CF scale,
+offset, fill and time decoding, including gzip inputs and either ``ovw.l2`` or
+``ovw_l2`` filename spelling. Required variables are ``lon``, ``lat``, ``time``,
+``wind_speed``, ``wind_dir``, ``wvc_quality_flag`` and ``ice_prob``, each on
+``NUMROWS`` x ``NUMCELLS``. Coordinates require ``degrees_east`` / ``degrees_north``,
+wind requires ``m s-1`` / ``degree``, and ice probability requires ``1``.
+
+Directions require ``standard_name=wind_to_direction``. If that attribute is absent,
+the reader accepts only the explicit global-comment declaration found in the real
+ASCAT 2101 header: ``All wind directions in oceanographic convention (0 deg. flowing North)``.
+An unknown convention or contradictory standard name fails; no direction is inferred
+from degrees alone. Synthetic legacy fixtures now declare their convention explicitly.
+
+The combined header and readable-cell time range must not exceed 24 hours. This is
+a conservative granule sanity bound, not a matching tolerance; it rejects the
+surveyed malformed ASCAT 5.7 km header spanning 2000 to 2018, and cell-time outliers
+that could otherwise expand SAR discovery across years. Coverage can still extend
+beyond the header within that bound. The strict SAR matching rule is unchanged.
+
+The seven-product integration tests use manufactured small arrays and surveyed
+header encodings; they do not establish measurement-level scientific parity or
+archive completeness. Connected, bounded real-product matching remains necessary.
 
 The Item's ``id`` remains an opaque, deterministic local hash derived from the
 parent SAFE identity and measurement-relative path. It is not a CDSE UUID and
@@ -69,7 +112,7 @@ SAR Matchup draft but do not claim full compliance with that extension.
    "sarmatchup:sar_instrument_mode", "WV"
    "sarmatchup:sar_product_type", "OCN"
    "sarmatchup:sar_safe", "Full parent OCN SAFE name"
-   "sarmatchup:other_instrument", "HY-2B HSCAT"
+   "sarmatchup:other_instrument", "Validated file source, e.g. HY-2B HSCAT or MetOp-B ASCAT"
    "sarmatchup:other_type", "scatterometer"
    "sarmatchup:other_geometry_type", "MultiPoint: retained observation locations, not a swath polygon"
    "sarmatchup:searching_window_hours", "Configured tolerance in hours, applied on each side of the acquisition interval"
@@ -116,12 +159,15 @@ Each object in ``properties.soba:matchups`` represents one source granule:
 
    "reference_asset", "Key of this granule in the Item's assets object"
    "reference_file", "Original granule filename"
+   "reference_source", "Actual validated global source attribute"
+   "reference_version", "Actual software_identification_wind as a string"
+   "reference_resolution", "Actual pixel_size_on_horizontal attribute, e.g. 12.5 km"
    "sarmatchup:other_id", "Same granule filename; scoped to this group rather than the entire Item"
    "reference_geometry", "GeoJSON MultiPoint with one [longitude, latitude] coordinate per retained point, in points-array order"
    "points", "Matched observations with their original source indices and values"
 
 ``reference_geometry`` describes only the selected observation centres. It is
-neither the whole granule footprint nor a reconstruction of 25 km cell boundaries.
+neither the whole granule footprint nor a reconstruction of cell boundaries.
 Positions can repeat when observations share a location.
 
 Each object in ``points`` contains:
@@ -148,7 +194,11 @@ maximum summarize these exact per-point values without choosing one representati
 observation. Times retain their available source precision; differences are JSON
 numbers without display rounding.
 
-Matching still uses the interval, not a midpoint-distance cutoff::
+Matching still uses the interval, not a midpoint-distance cutoff. Whole-second
+OCN header times may differ from fractional manifest endpoints: validation uses
+the manifest start rounded down and stop rounded up only for whole-second header
+values. Discovery and the coarse SAFE prefilter include one second of precision
+padding; the final imagette/point test below does not receive that extra padding::
 
    imagette_start - tolerance < observation_time < imagette_end + tolerance
 
@@ -177,8 +227,14 @@ The output directory also contains:
 * ``diagnostics.json``: imagette/granule matching counts.
 * ``sar_metadata.json``: selected local SAFE/imagette metadata and source identities.
 * ``manifest.json``: resolved recipe, source provenance, matching rules, counts,
-  and hashes of output artifacts. Run-manifest schema version 6 describes this layout;
+  and hashes of output artifacts. Run-manifest schema version 7 describes this layout;
   it is separate from STAC's version number.
+
+Each ``manifest.reference_inputs`` entry retains its path, SHA256 and byte size,
+and adds the actual per-file ``source``, ``version`` and ``resolution``. These values
+come from validated file attributes, not merely the requested recipe. Item granule
+groups carry the same values under the ``reference_*`` names above, so numeric
+quality flags remain tied to their source processing version without reinterpretation.
 
 Differences from the SAR Matchup draft
 --------------------------------------

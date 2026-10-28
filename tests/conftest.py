@@ -144,11 +144,6 @@ def local_recipe(tmp_path):
         ds.lat.attrs["units"] = "degrees_north"
         ds.ice_prob.attrs["units"] = "1"
         ds.to_netcdf(reference / f"SYNTHETIC_HSCAT_{index:03d}.nc")
-    (destination / "land.geojson").write_text(
-        '{"type":"FeatureCollection","features":[{"type":"Feature",'
-        '"properties":{"synthetic":true},"geometry":{"type":"Polygon",'
-        '"coordinates":[[[0,-1],[0.5,-1],[0.5,2],[0,2],[0,-1]]]}}]}\n'
-    )
     recipe = destination / "hscat.toml"
     recipe.write_text("""scat = "hscat"
 met = "hy-2b"
@@ -160,7 +155,5 @@ stop_date = "2026-06-30"
 sar_missions = ["S1A"]
 time_tolerance_minutes = 1
 output_dir = "result"
-land_mask = "land.geojson"
-land_mask_source = "synthetic local-test mask"
 """)
     return recipe

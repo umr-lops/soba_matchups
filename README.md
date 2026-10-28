@@ -35,11 +35,15 @@ Build once with internet access. Running needs only local files.
 apptainer build soba_matchups.sif apptainer.def
 apptainer run \
   --bind /path/to/sar/archive:/path/to/sar/archive:ro \
-  --bind /path/to/knmi/l2b:/reference:ro \
+  --bind /path/to/knmi/l2b:/path/to/knmi/l2b:ro \
   --bind /path/to/work:/work \
   soba_matchups.sif run --recipe /work/hscat.toml
 ```
 
-## Documentation
+Bind the KNMI tree at its real path and set `reference_root` to that path, so the
+asset links in the output name the real files.
 
-The output format is described in the [documentation](https://soba-matchups.readthedocs.io/en/latest/).
+## Output format
+
+See [STAC_SPEC.md](STAC_SPEC.md). Usage notes are in the
+[documentation](https://soba-matchups.readthedocs.io/en/latest/).

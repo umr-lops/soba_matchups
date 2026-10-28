@@ -9,7 +9,6 @@ import numpy as np
 from soba_matchups import __version__
 from soba_matchups.adapters import scat
 from soba_matchups.config import REFERENCE_PRODUCTS
-from soba_matchups.land_fraction import LandMask
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_metadata import (
     OCN_HEADER_PRECISION_SECONDS,
@@ -64,7 +63,6 @@ def run(recipe):
             f"Output already exists; choose a fresh directory: {recipe.output_dir}"
         )
     refs = reference_inputs(recipe)
-    land = LandMask(recipe.land_mask)
     delta = timedelta(minutes=recipe.time_tolerance_minutes)
     precision = timedelta(seconds=OCN_HEADER_PRECISION_SECONDS)
 
@@ -164,24 +162,16 @@ def run(recipe):
                     )
             if groups:
                 items.append(
-                    imagette_item(
-                        product,
-                        imagette,
-                        fields,
-                        groups,
-                        land.sea_percent(imagette["GeoFootprint"]),
-                        recipe.time_tolerance_minutes,
-                    )
+                    imagette_item(product, imagette, fields, groups, recipe.time_tolerance_minutes)
                 )
     # Confirm no input changed while matching, before anything is published.
     verify_local_inputs(discovery)
-    land.verify_unchanged()
     for ref in refs:
         if file_identity(ref["path"]) != ref["identity"]:
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 7,
+        "schema_version": 8,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -203,12 +193,6 @@ def run(recipe):
             {**ref["identity"], **{key: ref[key] for key in ["source", "version", "resolution"]}}
             for ref in refs
         ],
-        "land_mask": {
-            **land.provenance,
-            "source": recipe.land_mask_source,
-            "footprint_scope": "individual imagette",
-            "used_as_filter": False,
-        },
         "reference_files": len(refs),
         # Versions are recorded, not enforced; this lists every one used in the run.
         "reference_versions": sorted({ref["version"] for ref in refs}),
@@ -220,7 +204,7 @@ def run(recipe):
         "stac_items": len(items),
         "matchup_imagette_cell_rows": len(seen_points),
         "duplicate_associations_discarded": duplicate_points,
-        "matched_safes": len({i["properties"]["soba:safe_id"] for i in items}),
+        "matched_safes": len({i["properties"]["sarmatchup:sar_safe"] for i in items}),
         "positive_imagette_reference_file_pairs": sum(d["retained_cells"] > 0 for d in diagnostics),
         "source_code": [file_identity(p) for p in sorted(Path(__file__).parent.rglob("*.py"))],
         "rules": {
@@ -235,7 +219,6 @@ def run(recipe):
             "retention": "all finite wind vectors; retain quality/ice flags without filtering",
         },
         "units": {
-            "sea_percent": "percent of individual imagette footprint outside the land mask",
             "wind_speed": "m s-1",
             "wind_direction_to": "degree, flowing toward",
             "ref_lon": "degrees_east, [-180,180)",
@@ -247,8 +230,8 @@ def run(recipe):
             "Reads OSW geolocation and UTC attributes, not wind/spectral arrays; no network.",
             "Archive inventory only; missing mission/day directories are listed in discovery.",
             "SAR file identities use size/mtime; manifests and references use SHA256.",
-            "soba:* properties are project-specific, not a registered STAC extension.",
-            "No sea-percent/polar prefilter or downstream quality/ice filter.",
+            "sarmatchup:* properties are project-specific, not a registered STAC extension.",
+            "No sea-percent, polar, quality or ice filter.",
             "Tolerance is explicitly configured, not scientifically calibrated.",
             "One Item per matched imagette per fresh run; no cross-run update or enrichment.",
         ],

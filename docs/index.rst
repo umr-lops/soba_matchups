@@ -1,13 +1,11 @@
 soba_matchups
 =============
 
-.. toctree::
-   :maxdepth: 1
+Match local Sentinel-1 WV L2 OCN imagettes with KNMI L2B scatterometer observations
+(ASCAT and HSCAT). No L1 input, catalogue API, cache or credentials.
 
-   stac-format
-
-Match local Sentinel-1 WV L2 OCN imagettes with HY-2B HSCAT 25 km observations
-No L1 input, catalogue API, cache or credentials.
+The output format is specified in
+`STAC_SPEC.md <https://github.com/umr-lops/soba_matchups/blob/main/STAC_SPEC.md>`_.
 
 Run
 ---
@@ -20,7 +18,9 @@ Install from the checkout::
 
 Copy ``examples/hscat.toml`` and edit the paths and dates. Set
 ``reference_root`` to the KNMI ``satellite/l2b`` root and ``sar_archive_root``
-to the common ESA root, not a particular mission/day directory. The expected
+to the common ESA root, not a particular mission/day directory. In a container,
+bind the KNMI tree at its real path and use that path as ``reference_root``, so
+the asset links in the output name the real files. The expected
 SAR hierarchy is ``sentinel-1a/L2/WV/S1A_WV_OCN__2S/YYYY/DDD/*.SAFE`` for S1A,
 with corresponding mission paths for S1B/C/D. Each extracted SAFE needs its
 ``manifest.safe`` and all listed ``measurement/*.nc`` files::
@@ -31,6 +31,44 @@ with corresponding mission paths for S1B/C/D. Each extracted SAFE needs its
 ``validate`` checks the recipe and reference files; ``run`` also reads SAR metadata.
 ``stop_date`` is exclusive. ``output_dir`` must be new. Replace the previous
 ``sar_cache_dir`` / ``offline`` keys with ``sar_archive_root``.
+
+Reference products
+------------------
+
+Recipes select an explicit ``scat`` / ``met`` / ``resolution`` combination:
+
+* ``ascat`` / ``metop-b`` / ``25km``, ``12.5km`` or ``5.7km``.
+* ``ascat`` / ``metop-c`` / ``12.5km``.
+* ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
+
+Other combinations, including ``metop-d``, are rejected, not substituted.
+Any processing version is accepted, so the recipe has no version key. Each file's
+global ``software_identification_wind`` is recorded in the manifest and Items, and
+``manifest.reference_versions`` lists every version used in the run.
+
+Every file must also pass source, pixel-size, variable/dimension, unit and direction
+checks. The common reader derives grid sizes dynamically and applies CF scale,
+offset, fill and time decoding, including gzip inputs and either ``ovw.l2`` or
+``ovw_l2`` filename spelling. Required variables are ``lon``, ``lat``, ``time``,
+``wind_speed``, ``wind_dir``, ``wvc_quality_flag`` and ``ice_prob``, each on
+``NUMROWS`` x ``NUMCELLS``. Coordinates require ``degrees_east`` / ``degrees_north``,
+wind requires ``m s-1`` / ``degree``, and ice probability requires ``1``.
+
+Directions require ``standard_name=wind_to_direction``. If that attribute is absent,
+the reader accepts only the explicit global-comment declaration found in the real
+ASCAT 2101 header: ``All wind directions in oceanographic convention (0 deg. flowing North)``.
+An unknown convention or contradictory standard name fails; no direction is inferred
+from degrees alone.
+
+The combined header and readable-cell time range must not exceed 24 hours. This is
+a conservative granule sanity bound, not a matching tolerance; it rejects the
+surveyed malformed ASCAT 5.7 km header spanning 2000 to 2018, and cell-time outliers
+that could otherwise expand SAR discovery across years. Coverage can still extend
+beyond the header within that bound. The strict SAR matching rule is unchanged.
+
+The seven-product integration tests use manufactured small arrays and surveyed
+header encodings; they do not establish measurement-level scientific parity or
+archive completeness.
 
 Matching and output
 -------------------
@@ -44,16 +82,14 @@ day to include acquisitions crossing midnight. Missing day folders are recorded;
 local coverage is not checked against an external catalogue.
 
 A point must lie inside the same imagette and within its configured time tolerance.
-Quality/ice flags remain unfiltered. ``sea_percent`` uses the imagette footprint
-and selected mask in EPSG:6933, without a sea-percent filter.
+Quality/ice flags remain unfiltered.
 
 Outputs: one STAC 1.0.0 JSON in ``items/`` per matched imagette, plus
-``diagnostics.json``, ``sar_metadata.json`` and ``manifest.json``. Custom
-``soba:matchups`` groups preserve source granules, original row/cell indices,
-times, winds and flags. SAR identifiers are local hashes, not catalogue UUIDs.
-Local assets use the runtime mount paths. This is not a co-aligned Parquet exporter.
-See :doc:`stac-format` for filenames, fields and time differences.
+``diagnostics.json``, ``sar_metadata.json`` and ``manifest.json``. The
+``sarmatchup:matchups`` groups preserve source granules, original row/cell indices,
+times, winds and flags. The Item ``id`` is a local hash, not a catalogue UUID.
+This is not a co-aligned Parquet exporter.
 
 See the `repository README <https://github.com/umr-lops/soba_matchups#readme>`_
-for the Apptainer build and local archive binds. The SIF bundles the OSM mask;
-runtime needs no network access.
+for the Apptainer build and local archive binds. The SIF bundles the OSM land
+polygons; runtime needs no network access.

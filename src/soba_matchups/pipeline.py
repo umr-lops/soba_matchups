@@ -25,8 +25,8 @@ def reference_inputs(recipe):
     while day < recipe.stop_date:
         directory = (
             recipe.reference_root
-            / recipe.met
-            / recipe.scat
+            / recipe.platform
+            / recipe.instrument
             / recipe.resolution
             / "data"
             / str(day.year)
@@ -44,7 +44,8 @@ def reference_inputs(recipe):
     for path in paths:
         # Hash each granule so the manifest records exactly what was read.
         identity = file_identity(path)
-        source, resolution = REFERENCE_PRODUCTS[(recipe.scat, recipe.met, recipe.resolution)]
+        product = (recipe.instrument, recipe.platform, recipe.resolution)
+        source, resolution, _ = REFERENCE_PRODUCTS[product]
         ref = scat.read_reference(path, expected_source=source, expected_resolution=resolution)
         if not recipe.start_date <= ref["granule_start_day"] < recipe.stop_date:
             raise ValueError(f"Granule start day outside requested range: {path}")
@@ -171,7 +172,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 9,
+        "schema_version": 10,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -194,6 +195,10 @@ def run(recipe):
             for ref in refs
         ],
         "reference_files": len(refs),
+        # The label of the reference product, used in the Item file names.
+        "reference_product": REFERENCE_PRODUCTS[
+            (recipe.instrument, recipe.platform, recipe.resolution)
+        ][2],
         # Versions are recorded, not enforced; this lists every one used in the run.
         "reference_versions": sorted({ref["version"] for ref in refs}),
         "reference_finite_wind_cells": sum(len(ref["flat"]) for ref in refs),

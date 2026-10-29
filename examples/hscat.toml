@@ -1,5 +1,5 @@
-scat = "hscat"
-met = "hy-2b"
+instrument = "hscat"
+platform = "hy-2b"
 resolution = "25km"
 
 reference_root = "/path/to/knmi/satellite/l2b"

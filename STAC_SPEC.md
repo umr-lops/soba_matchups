@@ -1,7 +1,7 @@
 # soba_matchups output specification
 
 This file specifies what `soba_matchups run` writes: STAC 1.0.0 Items and three
-run files. The run manifest layout is `schema_version` 9.
+run files. The run manifest layout is `schema_version` 10.
 
 The output is a matchup index. Each Item links one Sentinel-1 WV OCN imagette to
 the KNMI L2B scatterometer (ASCAT or HSCAT) observations that fall inside it. It is
@@ -24,34 +24,33 @@ run is complete or absent. An imagette without a match produces no Item.
 ## 2. File naming
 
 ```
-<SAFE name without .SAFE>__IMG<NNN>__<INSTRUMENT>_<RESOLUTION>.json
+<SAFE name without .SAFE>__IMG<NNN>__<PRODUCT>.json
 ```
 
 Example (SAFE `S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63`,
-imagette 4, HY-2B HSCAT at 25 km):
+imagette 4, HY-2B HSCAT at 25 km from KNMI):
 
 ```
-S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63__IMG004__HY2B_HSCAT_25KM.json
+S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63__IMG004__KNMI_HSCAT_HY2B_25KM.json
 ```
 
 | Part | Meaning |
 | --- | --- |
 | SAFE name | Parent product, as named in the archive. |
 | `IMG<NNN>` | Imagette number from the measurement file name, padded to three digits. |
-| `INSTRUMENT` | Validated `source` attribute of the reference file, upper case, hyphens removed, spaces replaced by `_`. |
-| `RESOLUTION` | Pixel size of the reference product in km, with the decimal point written as `P`. |
+| `PRODUCT` | Label of the reference product: provider, instrument, platform and resolution. It comes from the product table `REFERENCE_PRODUCTS` in `soba_matchups.config` and is written to `manifest.reference_product`. The decimal point of the resolution is written `P`. |
 
-Instrument and resolution values by recipe:
+Product label by recipe:
 
-| `scat` / `met` / `resolution` | Suffix |
+| `instrument` / `platform` / `resolution` | `PRODUCT` |
 | --- | --- |
-| `hscat` / `hy-2b` / `25km` | `HY2B_HSCAT_25KM` |
-| `hscat` / `hy-2c` / `25km` | `HY2C_HSCAT_25KM` |
-| `hscat` / `hy-2d` / `25km` | `HY2D_HSCAT_25KM` |
-| `ascat` / `metop-b` / `25km` | `METOPB_ASCAT_25KM` |
-| `ascat` / `metop-b` / `12.5km` | `METOPB_ASCAT_12P5KM` |
-| `ascat` / `metop-b` / `5.7km` | `METOPB_ASCAT_5P7KM` |
-| `ascat` / `metop-c` / `12.5km` | `METOPC_ASCAT_12P5KM` |
+| `hscat` / `hy-2b` / `25km` | `KNMI_HSCAT_HY2B_25KM` |
+| `hscat` / `hy-2c` / `25km` | `KNMI_HSCAT_HY2C_25KM` |
+| `hscat` / `hy-2d` / `25km` | `KNMI_HSCAT_HY2D_25KM` |
+| `ascat` / `metop-b` / `25km` | `KNMI_ASCAT_METOPB_25KM` |
+| `ascat` / `metop-b` / `12.5km` | `KNMI_ASCAT_METOPB_12P5KM` |
+| `ascat` / `metop-b` / `5.7km` | `KNMI_ASCAT_METOPB_5P7KM` |
+| `ascat` / `metop-c` / `12.5km` | `KNMI_ASCAT_METOPC_12P5KM` |
 
 The processing version of the reference files is not part of the name. The Item
 records it per granule (`reference_version`). The name does not encode the time
@@ -174,7 +173,7 @@ In a container, bind the KNMI tree at its real path and use that path as
 - `sar_metadata.json`: the SAFEs and imagettes read from the archive, with the
   identity of each input file.
 - `manifest.json`: the resolved recipe, the checksum and size of every input,
-  `reference_versions` (each version used in the run), counts, the matching rules,
+  `reference_product` (the label in the file names), `reference_versions` (each version used in the run), counts, the matching rules,
   known limitations, and the checksum of every output file. Reference inputs carry
   the `source`, `version` and `resolution` read from the file, not the requested ones.
 

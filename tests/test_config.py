@@ -9,8 +9,8 @@ def test_toml_recipe_preserves_legacy_keys_and_resolves_relative_paths(tmp_path)
     (tmp_path / "reference").mkdir()
     (tmp_path / "esa").mkdir()
     recipe = tmp_path / "hscat.toml"
-    recipe.write_text("""scat = "hscat"
-met = "hy-2b"
+    recipe.write_text("""instrument = "hscat"
+platform = "hy-2b"
 resolution = "25km"
 reference_root = "reference"
 start_date = "2020-01-10"
@@ -21,7 +21,7 @@ sar_archive_root = "esa"
 output_dir = "run"
 """)
     config = load_recipe(recipe)
-    assert (config.scat, config.met, config.resolution) == ("hscat", "hy-2b", "25km")
+    assert (config.instrument, config.platform, config.resolution) == ("hscat", "hy-2b", "25km")
     assert config.reference_root == tmp_path / "reference"
     assert config.output_dir == tmp_path / "run"
     assert config.sar_archive_root == tmp_path / "esa"
@@ -38,7 +38,7 @@ def test_unsupported_product_is_not_silently_accepted(tmp_path):
 
     example = Path(__file__).parents[1] / "examples/hscat.toml"
     recipe = tmp_path / "other.toml"
-    recipe.write_text(example.read_text().replace('scat = "hscat"', 'scat = "ascat"'))
+    recipe.write_text(example.read_text().replace('instrument = "hscat"', 'instrument = "ascat"'))
     with pytest.raises(ValueError, match="supported"):
         load_recipe(recipe)
 
@@ -68,13 +68,13 @@ def test_available_knmi_products(local_recipe, sensor, platform, resolution, ver
         text = text.replace(f'"{old}"', f'"{new}"')
     local_recipe.write_text(text)
     config = load_recipe(local_recipe)
-    assert (config.scat, config.met, config.resolution) == (sensor, platform, resolution)
+    assert (config.instrument, config.platform, config.resolution) == (sensor, platform, resolution)
 
 
 @pytest.mark.parametrize(
     "old,new",
     [
-        ('met = "hy-2b"', 'met = "metop-d"'),
+        ('platform = "hy-2b"', 'platform = "metop-d"'),
         ('resolution = "25km"', 'resolution = "12.5km"'),
         ('resolution = "25km"', 'resolution = "25km"\nreference_version = "2202"'),
     ],

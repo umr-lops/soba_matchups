@@ -47,13 +47,9 @@ def test_signed_time_differences_and_summary_preserve_observations():
     assert props["sarmatchup:n_coloc_points"] == 2
 
 
-def test_filename_names_instrument_and_resolution():
-    value = item()
-    stem = "S1A_WV_OCN__2SSV_EXAMPLE__IMG001__HY2B_HSCAT"
-    group = value["properties"]["sarmatchup:matchups"][0]
-    for pixel, expected in [("25.0 km", "25KM"), ("12.5 km", "12P5KM"), ("5.7 km", "5P7KM")]:
-        group["reference_resolution"] = pixel
-        assert item_filename(value) == f"{stem}_{expected}"
+def test_filename_ends_with_the_product_label():
+    name = item_filename(item(), "KNMI_HSCAT_HY2B_25KM")
+    assert name == "S1A_WV_OCN__2SSV_EXAMPLE__IMG001__KNMI_HSCAT_HY2B_25KM"
 
 
 def test_filename_collision_does_not_publish_partial_output(tmp_path):
@@ -64,5 +60,15 @@ def test_filename_collision_does_not_publish_partial_output(tmp_path):
         point["record_id"] += "different"
     output = tmp_path / "result"
     with pytest.raises(ValueError, match="duplicate STAC filename"):
-        publish(output, [first, second], [], [], {"stac_items": 2, "matchup_imagette_cell_rows": 4})
+        publish(
+            output,
+            [first, second],
+            [],
+            [],
+            {
+                "stac_items": 2,
+                "matchup_imagette_cell_rows": 4,
+                "reference_product": "KNMI_HSCAT_HY2B_25KM",
+            },
+        )
     assert not output.exists()

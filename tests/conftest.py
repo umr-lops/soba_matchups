@@ -145,8 +145,8 @@ def local_recipe(tmp_path):
         ds.ice_prob.attrs["units"] = "1"
         ds.to_netcdf(reference / f"SYNTHETIC_HSCAT_{index:03d}.nc")
     recipe = destination / "hscat.toml"
-    recipe.write_text("""scat = "hscat"
-met = "hy-2b"
+    recipe.write_text("""instrument = "hscat"
+platform = "hy-2b"
 resolution = "25km"
 reference_root = "reference"
 sar_archive_root = "esa"

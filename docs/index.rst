@@ -35,7 +35,7 @@ with corresponding mission paths for S1B/C/D. Each extracted SAFE needs its
 Reference products
 ------------------
 
-Recipes select an explicit ``scat`` / ``met`` / ``resolution`` combination:
+Recipes select an explicit ``instrument`` / ``platform`` / ``resolution`` combination:
 
 * ``ascat`` / ``metop-b`` / ``25km``, ``12.5km`` or ``5.7km``.
 * ``ascat`` / ``metop-c`` / ``12.5km``.

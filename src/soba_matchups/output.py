@@ -110,20 +110,17 @@ def imagette_item(product, imagette, fields, groups, tolerance):
     }
 
 
-def item_filename(item):
-    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<INSTRUMENT>_<RESOLUTION>.
+def item_filename(item, product):
+    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<PRODUCT>.
 
-    Example (SAFE name, imagette 4, HY-2B HSCAT at 25 km):
-    S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63__IMG004__HY2B_HSCAT_25KM
-    The instrument is the validated reference source (HY-2B HSCAT -> HY2B_HSCAT). The
-    resolution is its pixel size in km, with the decimal point written as P (12.5 km -> 12P5KM).
+    Example (SAFE name, imagette 4, HY-2B HSCAT at 25 km from KNMI):
+    S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63__IMG004__KNMI_HSCAT_HY2B_25KM
+    PRODUCT is the label of the reference product (provider, instrument, platform and
+    resolution), taken from REFERENCE_PRODUCTS in config.py.
     """
     props = item["properties"]
     stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
-    instrument = props["sarmatchup:other_instrument"].upper().replace("-", "").replace(" ", "_")
-    pixel_size = props["sarmatchup:matchups"][0]["reference_resolution"]
-    resolution = f"{float(pixel_size.split()[0]):g}".replace(".", "P") + "KM"
-    return f"{stem}__IMG{props['sarmatchup:imagette_index']:03d}__{instrument}_{resolution}"
+    return f"{stem}__IMG{props['sarmatchup:imagette_index']:03d}__{product}"
 
 
 def publish(output_dir, items, diagnostics, products, manifest):
@@ -146,7 +143,7 @@ def publish(output_dir, items, diagnostics, products, manifest):
                     if point["record_id"] in point_ids:
                         raise ValueError("Conflicting duplicate matchup identities")
                     point_ids.add(point["record_id"])
-            filename = item_filename(item)
+            filename = item_filename(item, manifest["reference_product"])
             if not re.fullmatch(r"[A-Za-z0-9_-]+", filename) or filename in filenames:
                 raise ValueError("Unsafe or duplicate STAC filename")
             filenames.add(filename)

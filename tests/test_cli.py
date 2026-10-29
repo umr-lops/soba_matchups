@@ -83,7 +83,7 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert "sarmatchup:delta_diff_time_minutes" not in props
         stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
         index = props["sarmatchup:imagette_index"]
-        assert path.name == f"{stem}__IMG{index:03d}__HY2B_HSCAT_25KM.json"
+        assert path.name == f"{stem}__IMG{index:03d}__KNMI_HSCAT_HY2B_25KM.json"
         assert item["id"] != path.stem
     before = (result / "manifest.json").read_bytes()
     assert main(["run", "--recipe", str(recipe)]) == 2
@@ -115,13 +115,29 @@ def test_coarse_candidates_preserve_quantized_header_boundary_match(local_recipe
 @pytest.mark.parametrize(
     "sensor,platform,resolution,version,source,pixel,suffix",
     [
-        ("ascat", "metop-b", "25km", "3202", "MetOp-B ASCAT", "25.0 km", "METOPB_ASCAT_25KM"),
-        ("ascat", "metop-b", "12.5km", "2101", "MetOp-B ASCAT", "12.5 km", "METOPB_ASCAT_12P5KM"),
-        ("ascat", "metop-b", "5.7km", "3307", "MetOp-B ASCAT", "5.7 km", "METOPB_ASCAT_5P7KM"),
-        ("ascat", "metop-c", "12.5km", "3203", "MetOp-C ASCAT", "12.5 km", "METOPC_ASCAT_12P5KM"),
-        ("hscat", "hy-2b", "25km", "4008", "HY-2B HSCAT", "25.0 km", "HY2B_HSCAT_25KM"),
-        ("hscat", "hy-2c", "25km", "4006", "HY-2C HSCAT", "25.0 km", "HY2C_HSCAT_25KM"),
-        ("hscat", "hy-2d", "25km", "4002", "HY-2D HSCAT", "25.0 km", "HY2D_HSCAT_25KM"),
+        ("ascat", "metop-b", "25km", "3202", "MetOp-B ASCAT", "25.0 km", "KNMI_ASCAT_METOPB_25KM"),
+        (
+            "ascat",
+            "metop-b",
+            "12.5km",
+            "2101",
+            "MetOp-B ASCAT",
+            "12.5 km",
+            "KNMI_ASCAT_METOPB_12P5KM",
+        ),
+        ("ascat", "metop-b", "5.7km", "3307", "MetOp-B ASCAT", "5.7 km", "KNMI_ASCAT_METOPB_5P7KM"),
+        (
+            "ascat",
+            "metop-c",
+            "12.5km",
+            "3203",
+            "MetOp-C ASCAT",
+            "12.5 km",
+            "KNMI_ASCAT_METOPC_12P5KM",
+        ),
+        ("hscat", "hy-2b", "25km", "4008", "HY-2B HSCAT", "25.0 km", "KNMI_HSCAT_HY2B_25KM"),
+        ("hscat", "hy-2c", "25km", "4006", "HY-2C HSCAT", "25.0 km", "KNMI_HSCAT_HY2C_25KM"),
+        ("hscat", "hy-2d", "25km", "4002", "HY-2D HSCAT", "25.0 km", "KNMI_HSCAT_HY2D_25KM"),
     ],
 )
 def test_knmi_cli_product_labels_and_actual_provenance(
@@ -169,7 +185,8 @@ def test_knmi_cli_product_labels_and_actual_provenance(
     assert main(["run", "--recipe", str(local_recipe)]) == 0
     result = local_recipe.parent / "result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["schema_version"] == 9
+    assert manifest["schema_version"] == 10
+    assert manifest["reference_product"] == f"KNMI_{suffix.split('_', 1)[1]}"
     assert "land_mask" not in manifest
     assert manifest["stac_items"] == 2
     assert manifest["matchup_imagette_cell_rows"] == 8

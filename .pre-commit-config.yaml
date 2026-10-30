@@ -15,7 +15,7 @@ repos:
         args: [--maxkb=2048]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.1
+    rev: v0.17.2
     hooks:
       - id: ruff
         # Lint (including the docstring rules) on commit and again before every push.

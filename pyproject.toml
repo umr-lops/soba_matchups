@@ -17,7 +17,7 @@ dependencies = ["numpy>=1.26,<3", "xarray>=2024.1", "shapely>=2",
 soba_matchups = "soba_matchups.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest==9.1.1", "pre-commit==4.7.0", "ruff==0.17.1", "build==1.6.1"]
+dev = ["pytest==9.1.1", "pre-commit==4.7.0", "ruff==0.17.2", "build==1.6.1"]
 
 [project.urls]
 Repository = "https://github.com/umr-lops/soba_matchups"

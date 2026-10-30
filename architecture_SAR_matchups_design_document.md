@@ -375,7 +375,15 @@ sar_missions = ["S1A", "S1B"]
 - **Not covered.** CMEMS wave L3 files, the HPC version of the CCI files, and any statistic
   per imagette. The wave height statistics are computed downstream from the points.
 
-Tested: 15 tests on synthetic files, and a run on one real Jason-3 and one real Sentinel-3A
-track (5 of 5 and 3 of 3 points found, as an independent count expected), with a synthetic
-Sentinel-1 SAFE. Not tested with a real Sentinel-1 and altimeter pair, because the public
-files end in 2023 (2024 for Jason-3 and SARAL) and the local SAFEs are later.
+Tested: 15 tests on synthetic files, and two runs on real data:
+
+- One real Jason-3 and one real Sentinel-3A track, with a synthetic Sentinel-1 SAFE (5 of 5 and
+  3 of 3 points found, as an independent count expected).
+- Six real Sentinel-1A SAFEs of 2023-06-01 (490 imagettes) with real SARAL files. The SAFE
+  names, imagette names, times and footprints came from the Copernicus catalogue and node
+  listing, so no SAFE was downloaded. The cell centres were set to each footprint centroid.
+  The tool found 17 points in 6 imagettes, the same imagettes and point counts as an
+  independent count (3, 3, 3, 3, 3 and 2).
+
+Not tested with real Sentinel-1 measurement files, whose cell centres were not read, and not
+on the HPC copy of the CCI files.

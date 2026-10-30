@@ -5,7 +5,7 @@ Match local Sentinel-1 WV L2 OCN imagettes with KNMI L2B scatterometer observati
 (ASCAT and HSCAT). No L1 input, catalogue API, cache or credentials.
 
 The output format is specified in
-`STAC_SPEC.md <https://github.com/umr-lops/soba_matchups/blob/main/STAC_SPEC.md>`_.
+`architecture_SAR_matchups_design_document.md <https://github.com/umr-lops/soba_matchups/blob/main/architecture_SAR_matchups_design_document.md>`_.
 
 Run
 ---

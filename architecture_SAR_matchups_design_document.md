@@ -1,13 +1,47 @@
-# soba_matchups output specification
+# SAR matchups design document
 
-This file specifies what `soba_matchups run` writes: STAC 1.0.0 Items and three
-run files. The run manifest layout is `schema_version` 10.
+This document specifies the matchup collections and what `soba_matchups run` writes:
+STAC 1.0.0 Items and three run files. The run manifest layout is `schema_version` 10.
 
 The output is a matchup index. Each Item links one Sentinel-1 WV OCN imagette to
 the KNMI L2B scatterometer (ASCAT or HSCAT) observations that fall inside it. It is
 not an enriched co-aligned Parquet or NetCDF product.
 
-## 1. Run folder
+## 1. Product types and collections
+
+The tool reads Sentinel-1 WV Level-2 OCN products only. Discovery rejects any other
+product type.
+
+The co-aligned catalogue links each WV acquisition to two products, OCN and SLC. Its
+rows carry `sar_path_ocn`, `sar_path_slc`, `sar_safe_ocn` and `sar_safe_slc`, and no
+GRD column. On the one OCN/SLC pair compared, both manifests had 64 frames, and the
+frame of imagette 3 had an intersection over union of 0.9984 (largest vertex offset
+0.00016°). The same imagette has the same number, the same datatake and nearly the
+same times in both products.
+
+One collection per product type:
+
+| Proposed collection id | Product | Status |
+| --- | --- | --- |
+| `sar-matchups-wv-ocn` | Sentinel-1 WV L2 OCN | Items implemented; no collection document |
+| `sar-matchups-wv-slc` | Sentinel-1 WV L1 SLC | not implemented |
+| none | GRD | no WV GRD product appears in the catalogue; confirm it exists before defining a collection |
+
+- One run reads one product type. A run or a collection never mixes types: the OCN
+  Item and the SLC Item of one imagette have the same footprint and time, so they
+  match the same reference points, and every association would appear twice.
+- The product type is visible in the SAFE name (`OCN__2S`, `SLC__1S`) and in
+  `sarmatchup:sar_product_type`. The file naming in section 3 needs no change.
+- A recipe key `product_type` (default `OCN`) would select the collection. Not
+  implemented.
+- SLC has no OSW cell centres, so the footprint rule changes: the imagette frame
+  would come from the annotation's geolocation grid. On one imagette, the grid's
+  centroid fell in the same frame that the OCN rule selects. Not implemented.
+- Today `links` is `[]` and Items carry no `collection` field. Writing one
+  `collection.json` per product type, and linking each Item to it, is part of this
+  design. Not implemented.
+
+## 2. Run folder
 
 ```
 <output_dir>/
@@ -21,7 +55,7 @@ not an enriched co-aligned Parquet or NetCDF product.
 `output_dir` must not exist. The tool writes a temporary folder and renames it, so a
 run is complete or absent. An imagette without a match produces no Item.
 
-## 2. File naming
+## 3. File naming
 
 ```
 <SAFE name without .SAFE>__IMG<NNN>__<PRODUCT>.json
@@ -59,7 +93,60 @@ one run stops publication.
 
 The convention is implemented in `soba_matchups.output.item_filename`.
 
-## 3. Item
+The SAFE name already holds the product type (`OCN__2S`, `SLC__1S`), so the same
+convention applies to every collection.
+
+## 4. Reference points per SAR image
+
+One Item per imagette holds every reference observation that passes the matching
+rule in section 8: a finite wind vector, inside the footprint, within the time
+tolerance. Nothing is dropped for quality or ice flags, and nothing is reduced to a
+single best point.
+
+- Points are grouped by reference granule in `sarmatchup:matchups` (section 7), with
+  one group and one asset per granule.
+- `sarmatchup:n_coloc_points` is the total. `sarmatchup:delta_diff_time_minutes_min`
+  and `_max` summarise the signed time differences.
+- An imagette without a point has no Item.
+- Counts seen in tests: 1,151 points on 1,150 imagettes for HY-2D HSCAT 25 km, and
+  52 points on 21 imagettes for MetOp-B ASCAT 12.5 km (version 2401). One imagette
+  holds one or several points, and several more often with ASCAT 12.5 km.
+- The co-aligned catalogue holds one row, one reference cell, per imagette. In every
+  comparison run, each catalogue pair is also in the Items, and the Items add the
+  other cells of the footprint.
+- Choosing one point per imagette, for example the one nearest the centre, is a
+  downstream step. The footprint is the Item geometry, and each point has its position
+  and time difference. The distance to the centre is not stored.
+
+## 5. Mandatory STAC variables
+
+STAC 1.0.0 requires these fields in an Item. Each was removed in turn from a real
+Item and the result checked with stac-validator 4.2.2 against the STAC 1.0.0 Item
+schema.
+
+| Field | STAC 1.0.0 | Value here |
+| --- | --- | --- |
+| `stac_version` | required | `1.0.0` |
+| `type` | required | `Feature` |
+| `id` | required | local hash |
+| `geometry` | required | `Polygon` or `MultiPolygon` |
+| `bbox` | required (every Item has a geometry) | bounds of `geometry` |
+| `properties` | required | object |
+| `properties.datetime` | required key; `null` is accepted when `start_datetime` and `end_datetime` are both set (removing `end_datetime` is refused) | `null`, with the interval |
+| `links` | required | `[]` |
+| `assets` | required | object |
+| `assets.*.href` | required | absolute `file:` URI |
+| `stac_extensions` | optional | `[]` |
+| `assets.*.type`, `roles`, `title` | optional | set on every asset |
+
+The `sarmatchup:*` properties and everything under `sarmatchup:matchups` are not
+required by STAC, and no schema checks them. If an Item links to a collection, the
+STAC specification also requires its `collection` field. Our Items have no such link
+yet (section 1).
+
+The same Item with only `stac_version` set to `1.1.0` also passes (one Item tested).
+
+## 6. Item
 
 ### Core fields
 
@@ -73,7 +160,7 @@ The convention is implemented in `soba_matchups.output.item_filename`.
 | `bbox` | `[west, south, east, north]`, the bounds of `geometry`. |
 | `properties.datetime` | `null`. The interval is in `start_datetime` and `end_datetime`. |
 | `properties.start_datetime`, `end_datetime` | Imagette acquisition interval, UTC, from the `firstMeasurementTime` and `lastMeasurementTime` attributes of the OCN file. |
-| `assets` | Source files, see section 6. |
+| `assets` | Source files, see section 9. |
 | `links` | `[]`. No catalogue or collection URL is invented. |
 
 A footprint that crosses the dateline remains one imagette, stored as a
@@ -103,7 +190,7 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:measurement_name` | Name of the imagette NetCDF file. |
 | `sarmatchup:polarization` | `VV` or `HH`. |
 | `sarmatchup:mapping_policy` | `local_ocn_geolocation_to_manifest_frame`: how the imagette footprint was chosen. |
-| `sarmatchup:matchups` | Array of granule groups, section 4. |
+| `sarmatchup:matchups` | Array of granule groups, section 7. |
 
 `sarmatchup:n_coloc_points` counts associations, not distinct coordinates. Two
 observations at one location stay two associations. Repeated identical associations
@@ -112,7 +199,7 @@ are discarded by their `record_id`.
 Not in the Item: the sea percentage of the footprint. It belongs to a later
 ancillary step, not to the matchup step.
 
-## 4. Granule groups
+## 7. Granule groups
 
 Each object in `sarmatchup:matchups` describes one reference granule.
 
@@ -124,9 +211,9 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | `reference_version` | `software_identification_wind` attribute, as a string. |
 | `reference_resolution` | `pixel_size_on_horizontal` attribute, for example `12.5 km`. |
 | `sarmatchup:other_id` | Same value as `reference_file`, scoped to this group. |
-| `points` | Matched observations, section 5. |
+| `points` | Matched observations, section 8. |
 
-## 5. Points
+## 8. Points
 
 | Field | Meaning |
 | --- | --- |
@@ -153,7 +240,7 @@ The dateline cut is not a footprint boundary: a cell at 179.9° and a cell at -1
 both match a footprint that straddles it. Every finite wind vector is kept. Quality
 and ice flags are recorded, never used to filter.
 
-## 6. Assets
+## 9. Assets
 
 | Key | Points to | Role | Type | Checksum |
 | --- | --- | --- | --- | --- |
@@ -166,7 +253,7 @@ Every `href` is an absolute `file:` URI. The reference `href` starts with the re
 In a container, bind the KNMI tree at its real path and use that path as
 `reference_root`. The tool copies no data into the output folder.
 
-## 7. Run files
+## 10. Run files
 
 - `diagnostics.json`: for each imagette and reference granule, the number of
   candidate and retained cells.
@@ -177,7 +264,7 @@ In a container, bind the KNMI tree at its real path and use that path as
   known limitations, and the checksum of every output file. Reference inputs carry
   the `source`, `version` and `resolution` read from the file, not the requested ones.
 
-## 8. Validation status
+## 11. Validation status
 
 `stac-check` 1.14.0 passes every Item against the STAC 1.0.0 Item schema. That check
 covers the core fields only. The `sarmatchup:*` properties, the granule groups and the

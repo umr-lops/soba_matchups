@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Match Sentinel-1 WV L2 OCN imagettes with HY-2B HSCAT 25 km wind observations
+Match Sentinel-1 WV L2 OCN imagettes with scatterometer winds (KNMI ASCAT, HSCAT) or SWOT KaRIn waves and winds.
 The output is one STAC JSON file per matched imagette.
 
 It reads local files: the SAR archive, the HSCAT granules and a land mask.

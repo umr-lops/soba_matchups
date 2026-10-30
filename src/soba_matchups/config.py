@@ -7,10 +7,11 @@ from pathlib import Path
 import tomllib
 
 
-# Surveyed KNMI L2B identities, keyed by (instrument, platform, resolution). Each value is
+# Supported reference products, keyed by (instrument, platform, resolution). Each value is
 # (expected "source" attribute, expected pixel size, product label used in the Item file
-# names). Any processing version is accepted; each file is checked against the expected
-# variables, units and conventions instead.
+# names). The KNMI L2B entries are checked against their files' attributes; the SWOT file has
+# none, so its source and pixel size are the recipe's own. Any processing version is
+# accepted; each file is checked against the expected variables, units and conventions.
 REFERENCE_PRODUCTS = {
     ("ascat", "metop-b", "25km"): ("MetOp-B ASCAT", "25.0 km", "KNMI_ASCAT_METOPB_25KM"),
     ("ascat", "metop-b", "12.5km"): ("MetOp-B ASCAT", "12.5 km", "KNMI_ASCAT_METOPB_12P5KM"),
@@ -19,6 +20,7 @@ REFERENCE_PRODUCTS = {
     ("hscat", "hy-2b", "25km"): ("HY-2B HSCAT", "25.0 km", "KNMI_HSCAT_HY2B_25KM"),
     ("hscat", "hy-2c", "25km"): ("HY-2C HSCAT", "25.0 km", "KNMI_HSCAT_HY2C_25KM"),
     ("hscat", "hy-2d", "25km"): ("HY-2D HSCAT", "25.0 km", "KNMI_HSCAT_HY2D_25KM"),
+    ("karin", "swot", "2km"): ("SWOT KaRIn", "2 km", "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"),
 }
 
 
@@ -59,7 +61,7 @@ def load_recipe(path):
         )
     product = (data["instrument"], data["platform"], data["resolution"])
     if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
-        raise ValueError("Unsupported KNMI L2B instrument / platform / resolution combination")
+        raise ValueError("Unsupported reference instrument / platform / resolution combination")
     # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]

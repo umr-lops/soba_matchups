@@ -92,7 +92,7 @@ def imagette_item(product, imagette, fields, groups, tolerance):
             "sarmatchup:sar_product_type": fields["producttype"],
             "sarmatchup:sar_safe": product["Name"],
             "sarmatchup:other_instrument": groups[0]["reference_source"],
-            "sarmatchup:other_type": "scatterometer",
+            "sarmatchup:other_type": groups[0]["reference_type"],
             "sarmatchup:other_geometry_type": "MultiPoint",
             "sarmatchup:searching_window_hours": tolerance / 60,
             "sarmatchup:lib_version": __version__,

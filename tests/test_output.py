@@ -24,6 +24,7 @@ def item():
             "reference_path": "/synthetic-reference.nc",
             "reference_sha256": "synthetic",
             "reference_source": "HY-2B HSCAT",
+            "reference_type": "scatterometer",
             "reference_version": "2202",
             "reference_resolution": "25.0 km",
             "points": [

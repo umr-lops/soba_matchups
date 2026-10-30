@@ -260,11 +260,14 @@ def _stat(path):
 
 
 def _imagettes(root, safe, product, info, first, last, frames):
-    """Build one record per measurement NetCDF, tied to its own manifest frame."""
+    """Build one record per measurement NetCDF, tied to its own manifest frame.
+
+    Returns the records and the files skipped for having no cell centres.
+    """
     paths = _measurements(root, safe)
     if len(paths) != len(frames):
         raise ValueError("Native measurement/frame count mismatch")
-    rows, used, indices = [], set(), set()
+    rows, skipped, used, indices = [], [], set(), set()
     parts = safe.name.split("_")
     for path in paths:
         match = _NC_PATTERN.fullmatch(path.name)
@@ -314,8 +317,18 @@ def _imagettes(root, safe, product, info, first, last, frames):
         if lon.shape != lat.shape:
             raise ValueError("OSW longitude/latitude shape mismatch")
         valid = np.isfinite(lon) & np.isfinite(lat)
+        # An imagette without any cell centre has no position to place it, so it is skipped
+        # and listed; the rest of the SAFE is still used.
         if not valid.any():
-            raise ValueError("Missing finite OSW centres")
+            skipped.append(
+                {
+                    "Name": path.name,
+                    "index": index,
+                    "reason": "no finite OSW cell centres",
+                    "metadata_inputs": [identity],
+                }
+            )
+            continue
         centres = list(zip(lon[valid].ravel(), lat[valid].ravel()))
         if any(not (-180 <= x <= 180 and -90 <= y <= 90) for x, y in centres):
             raise ValueError("Out-of-range OSW centres")
@@ -348,7 +361,7 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 "metadata_inputs": [identity],
             }
         )
-    return sorted(rows, key=lambda row: row["index"])
+    return sorted(rows, key=lambda row: row["index"]), skipped
 
 
 def discover_local(
@@ -429,13 +442,14 @@ def discover_local(
                         "manifest_identity": identity,
                     }
                     try:
-                        product["Imagettes"] = _imagettes(
+                        product["Imagettes"], product["SkippedImagettes"] = _imagettes(
                             root, safe, product, info, acquisition_start, acquisition_end, frames
                         )
                     except (KeyError, AttributeError, OSError) as exc:
                         raise ValueError(f"Invalid local OCN metadata {safe}: {exc}") from exc
                     provenance["ocn_inputs"].extend(
-                        row["metadata_inputs"][0] for row in product["Imagettes"]
+                        row["metadata_inputs"][0]
+                        for row in product["Imagettes"] + product["SkippedImagettes"]
                     )
                     products.append(product)
             day += timedelta(days=1)

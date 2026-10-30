@@ -27,7 +27,7 @@ def test_dateline_is_one_split_frame_not_global_polygon(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "bad", ["missing", "ambiguous", "time", "nan", "traversal", "slc", "mission", "duplicate"]
+    "bad", ["missing", "ambiguous", "time", "traversal", "slc", "mission", "duplicate"]
 )
 def test_invalid_native_metadata_fails_closed(tmp_path, bad):
     safe, names = archive(tmp_path)
@@ -37,12 +37,9 @@ def test_invalid_native_metadata_fails_closed(tmp_path, bad):
         path.unlink()
     elif bad == "ambiguous":
         manifest.write_text(manifest.read_text().replace("0,3 0,4 1,4 1,3", "0,0 0,1 1,1 1,0"))
-    elif bad in ("time", "nan"):
+    elif bad == "time":
         with netCDF4.Dataset(path, "a") as ds:
-            if bad == "time":
-                ds.lastMeasurementTime = "2025-06-01T01:14:43Z"
-            else:
-                ds["oswLon"][:] = float("nan")
+            ds.lastMeasurementTime = "2025-06-01T01:14:43Z"
     elif bad == "traversal":
         manifest.write_text(manifest.read_text().replace("./measurement/", "../measurement/"))
     elif bad == "slc":
@@ -53,6 +50,50 @@ def test_invalid_native_metadata_fails_closed(tmp_path, bad):
         manifest.write_text(manifest.read_text().replace(names[1], names[0]))
     with pytest.raises(ValueError):
         sar.discover_local(START, END, ("S1C",), tmp_path)
+
+
+def empty_centres(path):
+    """Blank the cell centres of one imagette file, as in real files with no OSW cell."""
+    with netCDF4.Dataset(path, "a") as ds:
+        ds["oswLon"][:] = float("nan")
+        ds["oswLat"][:] = float("nan")
+
+
+def test_imagette_without_cell_centres_is_skipped_and_listed(tmp_path):
+    safe, names = archive(tmp_path)
+    empty_centres(safe / "measurement" / names[0])
+    products, provenance = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert [row["Name"] for row in product["Imagettes"]] == [names[1]]
+    (skipped,) = product["SkippedImagettes"]
+    assert skipped["Name"] == names[0]
+    assert skipped["index"] == 1
+    assert skipped["reason"] == "no finite OSW cell centres"
+    # The skipped file is still an input: a change to it is caught.
+    assert len(provenance["ocn_inputs"]) == 2
+    sar.verify_local_inputs(provenance)
+    (safe / "measurement" / names[0]).write_bytes(b"changed")
+    with pytest.raises(ValueError, match="changed"):
+        sar.verify_local_inputs(provenance)
+
+
+def test_safe_with_only_empty_imagettes_has_none_left(tmp_path):
+    safe, names = archive(tmp_path)
+    for name in names:
+        empty_centres(safe / "measurement" / name)
+    products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert product["Imagettes"] == []
+    assert len(product["SkippedImagettes"]) == 2
+
+
+def test_imagette_with_only_longitude_missing_is_skipped(tmp_path):
+    safe, names = archive(tmp_path)
+    with netCDF4.Dataset(safe / "measurement" / names[0], "a") as ds:
+        ds["oswLon"][:] = float("nan")
+    # A centre needs both coordinates, so no centre is finite here.
+    products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+    assert len(products[0]["SkippedImagettes"]) == 1
 
 
 def test_day_selection_inclusive_year_boundary_filters_before_nc(tmp_path):

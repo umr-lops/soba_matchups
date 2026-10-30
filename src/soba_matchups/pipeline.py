@@ -196,7 +196,7 @@ def run(recipe):
         "safes_without_candidate_cells": safes_without_candidates,
         "safe_candidate_cell_rows": candidate_cells,
         "imagettes_processed": imagettes_processed,
-        "imagettes_skipped_without_cell_centres": sum(len(p["SkippedImagettes"]) for p in products),
+        "imagettes_skipped": sum(len(p["SkippedImagettes"]) for p in products),
         "stac_items": len(items),
         "matchup_imagette_cell_rows": len(seen_points),
         "duplicate_associations_discarded": duplicate_points,

@@ -10,34 +10,8 @@ From: python:3.12-slim
 
 %post
     set -eu
-    apt-get update
-    apt-get install -y --no-install-recommends gdal-bin
-    rm -rf /var/lib/apt/lists/*
     python -m pip install --no-cache-dir /opt/soba_matchups
     python -m pip check
-    python - <<'PY'
-from pathlib import Path
-import shutil
-import tempfile
-from urllib.request import urlopen
-from zipfile import ZipFile
-
-url = "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip"
-target = Path("/opt/soba_matchups/land")
-target.mkdir(parents=True, exist_ok=True)
-with tempfile.TemporaryDirectory() as temp:
-    archive = Path(temp) / "land.zip"
-    with urlopen(url, timeout=120) as response, archive.open("wb") as stream:
-        shutil.copyfileobj(response, stream)
-    with ZipFile(archive) as bundle:
-        for name in ["land_polygons.shp", "land_polygons.shx", "land_polygons.dbf",
-                     "land_polygons.prj", "land_polygons.cpg", "README.txt"]:
-            with bundle.open(f"land-polygons-split-4326/{name}") as source:
-                with (target / name).open("wb") as destination:
-                    shutil.copyfileobj(source, destination)
-PY
-    ogrinfo /opt/soba_matchups/land/land_polygons.shp -sql 'CREATE SPATIAL INDEX ON land_polygons'
-    test -s /opt/soba_matchups/land/land_polygons.qix
 
 %environment
     export PYTHONUNBUFFERED=1
@@ -48,22 +22,16 @@ PY
 
 %test
     set -eu
-    python -c 'import soba_matchups.pipeline; from soba_matchups.land_fraction import LandMask; LandMask("/opt/soba_matchups/land/land_polygons.shp")'
+    python -c 'import soba_matchups.pipeline'
     soba_matchups --help
 
 %labels
     org.soba.tool soba_matchups
     org.soba.source https://github.com/umr-lops/soba_matchups
-    org.soba.land_source https://osmdata.openstreetmap.de/data/land-polygons.html
-    org.soba.land_license ODbL-1.0
 
 %help
-    Build from the repository root (internet access required):
+    Build from the repository root (internet access required for the Python packages):
         apptainer build soba_matchups.sif apptainer.def
-
-    OSM land polygons are downloaded into the image at build time, including
-    their attribution and ODbL notice. No runtime land-mask bind is needed.
-    The land polygons are for later ancillary steps; the recipe has no land_mask key.
 
     Bind the KNMI and ESA archives read-only, and the output workspace writable:
         ESA=/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa

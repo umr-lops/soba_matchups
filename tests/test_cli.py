@@ -187,7 +187,6 @@ def test_knmi_cli_product_labels_and_actual_provenance(
     manifest = json.loads((result / "manifest.json").read_text())
     assert manifest["schema_version"] == 11
     assert manifest["reference_product"] == f"KNMI_{suffix.split('_', 1)[1]}"
-    assert "land_mask" not in manifest
     assert manifest["stac_items"] == 2
     assert manifest["matchup_imagette_cell_rows"] == 8
     for entry in manifest["reference_inputs"]:

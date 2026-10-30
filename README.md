@@ -10,7 +10,6 @@
 Match Sentinel-1 WV L2 OCN imagettes with scatterometer winds (KNMI ASCAT, HSCAT) or SWOT KaRIn waves and winds.
 The output is one STAC JSON file per matched imagette.
 
-It reads local files: the SAR archive, the HSCAT granules and a land mask.
 
 ## Run it
 
@@ -39,9 +38,6 @@ apptainer run \
   --bind /path/to/work:/work \
   soba_matchups.sif run --recipe /work/hscat.toml
 ```
-
-Bind the KNMI tree at its real path and set `reference_root` to that path, so the
-asset links in the output name the real files.
 
 ## Output format
 

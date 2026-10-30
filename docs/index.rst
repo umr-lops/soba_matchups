@@ -93,5 +93,4 @@ times, winds and flags. The Item ``id`` is a local hash, not a catalogue UUID.
 This is not a co-aligned Parquet exporter.
 
 See the `repository README <https://github.com/umr-lops/soba_matchups#readme>`_
-for the Apptainer build and local archive binds. The SIF bundles the OSM land
-polygons; runtime needs no network access.
+for the Apptainer build and local archive binds. Runtime needs no network access.

@@ -9,9 +9,10 @@ import tomllib
 
 # Supported reference products, keyed by (instrument, platform, resolution). Each value is
 # (expected "source" attribute, expected pixel size, product label used in the Item file
-# names). The KNMI L2B entries are checked against their files' attributes; the SWOT file has
-# none, so its source and pixel size are the recipe's own. Any processing version is
-# accepted; each file is checked against the expected variables, units and conventions.
+# names). The KNMI L2B entries are checked against their files' attributes; the SWOT and CCI
+# altimeter files have none that fit, so their source and sampling are the recipe's own. Any
+# processing version is accepted; each file is checked against the expected variables, units and
+# conventions.
 REFERENCE_PRODUCTS = {
     ("ascat", "metop-b", "25km"): ("MetOp-B ASCAT", "25.0 km", "KNMI_ASCAT_METOPB_25KM"),
     ("ascat", "metop-b", "12.5km"): ("MetOp-B ASCAT", "12.5 km", "KNMI_ASCAT_METOPB_12P5KM"),
@@ -21,6 +22,13 @@ REFERENCE_PRODUCTS = {
     ("hscat", "hy-2c", "25km"): ("HY-2C HSCAT", "25.0 km", "KNMI_HSCAT_HY2C_25KM"),
     ("hscat", "hy-2d", "25km"): ("HY-2D HSCAT", "25.0 km", "KNMI_HSCAT_HY2D_25KM"),
     ("karin", "swot", "2km"): ("SWOT KaRIn", "2 km", "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"),
+    ("alti", "cryosat-2", "l2p"): ("CryoSat-2 altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_CRYOSAT2"),
+    ("alti", "jason-2", "l2p"): ("Jason-2 altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_JASON2"),
+    ("alti", "jason-3", "l2p"): ("Jason-3 altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_JASON3"),
+    ("alti", "saral", "l2p"): ("SARAL altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_SARAL"),
+    ("alti", "sentinel-3a", "l2p"): ("Sentinel-3 A altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_S3A"),
+    ("alti", "sentinel-3b", "l2p"): ("Sentinel-3 B altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_S3B"),
+    ("alti", "sentinel-6a", "l2p"): ("Sentinel-6 A altimeter", "1 Hz", "ESACCI_SEASTATE_L2P_S6A"),
 }
 
 

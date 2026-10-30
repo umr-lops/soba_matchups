@@ -2,7 +2,8 @@ soba_matchups
 =============
 
 Match local Sentinel-1 WV L2 OCN imagettes with KNMI L2B scatterometer observations
-(ASCAT and HSCAT). No L1 input, catalogue API, cache or credentials.
+(ASCAT and HSCAT) or SWOT KaRIn L2 wave and wind cells. No L1 input, catalogue API, cache
+or credentials.
 
 The output format is specified in
 `architecture_SAR_matchups_design_document.md <https://github.com/umr-lops/soba_matchups/blob/main/architecture_SAR_matchups_design_document.md>`_.
@@ -40,6 +41,7 @@ Recipes select an explicit ``instrument`` / ``platform`` / ``resolution`` combin
 * ``ascat`` / ``metop-b`` / ``25km``, ``12.5km`` or ``5.7km``.
 * ``ascat`` / ``metop-c`` / ``12.5km``.
 * ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
+* ``karin`` / ``swot`` / ``2km``: SWOT KaRIn L2 wave and wind (``examples/swot.toml``).
 
 Other combinations, including ``metop-d``, are rejected, not substituted.
 Any processing version is accepted, so the recipe has no version key. Each file's

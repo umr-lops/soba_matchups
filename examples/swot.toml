@@ -1,0 +1,12 @@
+instrument = "karin"
+platform = "swot"
+resolution = "2km"
+
+# The folder that holds the PGD0 and PID0 sub-folders of SWOT_L2_LR_SSH_WindWave files.
+reference_root = "/path/to/SWOT_L2_KARIN_LR_WindWave_AVISO"
+start_date = "2026-06-22"
+stop_date = "2026-06-23"  # Exclusive; selects reference-file start days.
+sar_missions = ["S1D"]
+time_tolerance_minutes = 360  # A SWOT pass can be hours away from the SAR acquisition.
+sar_archive_root = "/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa"
+output_dir = "../runs/swot-local-001"

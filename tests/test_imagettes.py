@@ -96,6 +96,30 @@ def test_imagette_with_only_longitude_missing_is_skipped(tmp_path):
     assert len(products[0]["SkippedImagettes"]) == 1
 
 
+def test_file_that_copies_another_centre_is_skipped_and_listed(tmp_path):
+    # Both files sit in the frame of imagette 2; only file 002 carries that number.
+    safe, names = archive(tmp_path, centres=((0.5, 0.5), (0.5, 0.5)))
+    products, provenance = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert [row["Name"] for row in product["Imagettes"]] == [names[1]]
+    (skipped,) = product["SkippedImagettes"]
+    assert skipped["Name"] == names[0]
+    assert skipped["index"] == 1
+    assert skipped["reason"] == "OSW centres lie in the frame of imagette 2"
+    assert len(provenance["ocn_inputs"]) == 2
+
+
+def test_two_files_in_one_frame_with_no_matching_number_stop_the_run(tmp_path):
+    safe, names = archive(tmp_path, centres=((0.5, 0.5), (0.5, 0.5)))
+    # Renumber file 002 as 005: neither file is now numbered like the frame (number 2).
+    renamed = names[1].replace("-002.nc", "-005.nc")
+    (safe / "measurement" / names[1]).rename(safe / "measurement" / renamed)
+    manifest = safe / "manifest.safe"
+    manifest.write_text(manifest.read_text().replace(names[1], renamed))
+    with pytest.raises(ValueError, match="one-to-one"):
+        sar.discover_local(START, END, ("S1C",), tmp_path)
+
+
 def test_day_selection_inclusive_year_boundary_filters_before_nc(tmp_path):
     safe, _ = archive(tmp_path)
     target = tmp_path / "sentinel-1c/L2/WV/S1C_WV_OCN__2S/2024/366" / NAME

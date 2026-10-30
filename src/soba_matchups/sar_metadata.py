@@ -262,12 +262,13 @@ def _stat(path):
 def _imagettes(root, safe, product, info, first, last, frames):
     """Build one record per measurement NetCDF, tied to its own manifest frame.
 
-    Returns the records and the files skipped for having no cell centres.
+    Returns the records and the files skipped: those with no cell centres, and those whose
+    centres lie in a frame that belongs to another imagette.
     """
     paths = _measurements(root, safe)
     if len(paths) != len(frames):
         raise ValueError("Native measurement/frame count mismatch")
-    rows, skipped, used, indices = [], [], set(), set()
+    claims, skipped, indices = {}, [], set()
     parts = safe.name.split("_")
     for path in paths:
         match = _NC_PATTERN.fullmatch(path.name)
@@ -333,8 +334,8 @@ def _imagettes(root, safe, product, info, first, last, frames):
         if any(not (-180 <= x <= 180 and -90 <= y <= 90) for x, y in centres):
             raise ValueError("Out-of-range OSW centres")
         # The one frame covering every OSW centre is this imagette's footprint (a centre at
-        # exactly +/-180 also matches the opposite side of the dateline). No two imagettes
-        # may claim the same frame, so file order is never used.
+        # exactly +/-180 also matches the opposite side of the dateline). File order is never
+        # used to find it; two files that claim one frame are settled after the loop.
         matches = [
             i
             for i, frame in enumerate(frames)
@@ -344,11 +345,10 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 for x, y in centres
             )
         ]
-        if len(matches) != 1 or matches[0] in used:
+        if len(matches) != 1:
             raise ValueError("OSW centres require unique one-to-one manifest frame association")
-        used.add(matches[0])
         relative = path.relative_to(safe.resolve()).as_posix()
-        rows.append(
+        claims.setdefault(matches[0], []).append(
             {
                 "Id": "local_"
                 + hashlib.sha256((product["Id"] + "/" + relative).encode()).hexdigest(),
@@ -361,7 +361,28 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 "metadata_inputs": [identity],
             }
         )
-    return sorted(rows, key=lambda row: row["index"]), skipped
+    rows = []
+    for frame_index, claimed in claims.items():
+        if len(claimed) == 1:
+            rows.append(claimed[0])
+            continue
+        # Some files carry the cell centre of another imagette (seen 6 numbers apart). Only the
+        # file numbered like the frame is kept; with no such file the run stops.
+        owners = [row for row in claimed if row["index"] == frame_index + 1]
+        if len(owners) != 1:
+            raise ValueError("OSW centres require unique one-to-one manifest frame association")
+        rows.append(owners[0])
+        for row in claimed:
+            if row is not owners[0]:
+                skipped.append(
+                    {
+                        "Name": row["Name"],
+                        "index": row["index"],
+                        "reason": f"OSW centres lie in the frame of imagette {owners[0]['index']}",
+                        "metadata_inputs": row["metadata_inputs"],
+                    }
+                )
+    return sorted(rows, key=lambda row: row["index"]), sorted(skipped, key=lambda s: s["index"])
 
 
 def discover_local(

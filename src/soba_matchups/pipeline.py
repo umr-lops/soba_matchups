@@ -1,4 +1,4 @@
-"""KNMI L2B coverage -> SAFE candidates -> imagette matching -> STAC publication."""
+"""Reference coverage -> SAFE candidates -> imagette matching -> STAC publication."""
 
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from soba_matchups import __version__
-from soba_matchups.adapters import scat
+from soba_matchups.adapters import scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_metadata import (
@@ -18,26 +18,14 @@ from soba_matchups.sar_metadata import (
 )
 
 
+# One adapter per instrument: it finds the files, reads them and names the point fields.
+ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot}
+
+
 def reference_inputs(recipe):
     """Read and validate every reference granule for the requested days (stop_date exclusive)."""
-    paths = []
-    day = recipe.start_date
-    while day < recipe.stop_date:
-        directory = (
-            recipe.reference_root
-            / recipe.platform
-            / recipe.instrument
-            / recipe.resolution
-            / "data"
-            / str(day.year)
-            / day.strftime("%j")
-        )
-        # A day folder holds plain or gzipped NetCDF granules.
-        selected = sorted([*directory.glob("*.nc"), *directory.glob("*.nc.gz")])
-        if not selected:
-            raise ValueError(f"No reference files for requested day: {directory}")
-        paths.extend(selected)
-        day += timedelta(days=1)
+    adapter = ADAPTERS[recipe.instrument]
+    paths = adapter.find_files(recipe)
     if len({p.name for p in paths}) != len(paths):
         raise ValueError("Repeated reference filenames; select one unambiguous product bundle")
     references = []
@@ -46,7 +34,7 @@ def reference_inputs(recipe):
         identity = file_identity(path)
         product = (recipe.instrument, recipe.platform, recipe.resolution)
         source, resolution, _ = REFERENCE_PRODUCTS[product]
-        ref = scat.read_reference(path, expected_source=source, expected_resolution=resolution)
+        ref = adapter.read_reference(path, expected_source=source, expected_resolution=resolution)
         if not recipe.start_date <= ref["granule_start_day"] < recipe.stop_date:
             raise ValueError(f"Granule start day outside requested range: {path}")
         ref["identity"] = identity
@@ -63,6 +51,7 @@ def run(recipe):
         raise FileExistsError(
             f"Output already exists; choose a fresh directory: {recipe.output_dir}"
         )
+    adapter = ADAPTERS[recipe.instrument]
     refs = reference_inputs(recipe)
     delta = timedelta(minutes=recipe.time_tolerance_minutes)
     precision = timedelta(seconds=OCN_HEADER_PRECISION_SECONDS)
@@ -80,9 +69,11 @@ def run(recipe):
     imagettes_processed = duplicate_points = safes_without_candidates = 0
     candidate_cells = 0
 
-    def number(x):
-        """Return a float, or None for NaN so the JSON stays valid."""
-        return float(x) if np.isfinite(x) else None
+    def number(x, integer=False):
+        """Return a float (an int for flags), or None for NaN so the JSON stays valid."""
+        if not np.isfinite(x):
+            return None
+        return int(x) if integer else float(x)
 
     # Stage 1 tests each whole SAFE; stage 2 tests each imagette on its own footprint and clock.
     for product in products:
@@ -108,15 +99,13 @@ def run(recipe):
             for ref, safe_indices in candidates:
                 if not len(safe_indices):
                     continue
-                subset = {
-                    key: ref[key][safe_indices]
-                    for key in ["lon", "lat", "time", "wind_speed", "wind_dir"]
-                }
+                subset = {key: ref[key][safe_indices] for key in ["lon", "lat", "time"]}
                 indices = safe_indices[
                     scat.match_cells(imagette, subset, recipe.time_tolerance_minutes)
                 ]
+                values = ref["fields_at"](indices) if len(indices) else {}
                 points = []
-                for i in indices:
+                for position, i in enumerate(indices):
                     flat = int(ref["flat"][i])
                     row_index, cell_index = divmod(flat, ref["columns"])
                     # One stable ID per (imagette, granule, cell); repeats are dropped and counted.
@@ -134,10 +123,10 @@ def run(recipe):
                             "ref_time_utc": str(ref["time"][i].astype("datetime64[ns]")) + "Z",
                             "ref_lon": float((ref["lon"][i] + 180) % 360 - 180),
                             "ref_lat": float(ref["lat"][i]),
-                            "wind_speed": float(ref["wind_speed"][i]),
-                            "wind_direction_to": float(ref["wind_dir"][i]),
-                            "quality_flag": number(ref["wvc_quality_flag"][i]),
-                            "ice_probability": number(ref["ice_prob"][i]),
+                            **{
+                                key: number(values[key][position], key in adapter.INTEGER_FIELDS)
+                                for key in adapter.FIELDS
+                            },
                         }
                     )
                 diagnostics.append(
@@ -156,6 +145,7 @@ def run(recipe):
                             "reference_path": str(ref["path"]),
                             "reference_sha256": ref["identity"]["sha256"],
                             "reference_source": ref["source"],
+                            "reference_type": adapter.TYPE,
                             "reference_version": ref["version"],
                             "reference_resolution": ref["resolution"],
                             "points": points,
@@ -172,7 +162,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 10,
+        "schema_version": 11,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -201,7 +191,7 @@ def run(recipe):
         ][2],
         # Versions are recorded, not enforced; this lists every one used in the run.
         "reference_versions": sorted({ref["version"] for ref in refs}),
-        "reference_finite_wind_cells": sum(len(ref["flat"]) for ref in refs),
+        "reference_cells": sum(len(ref["flat"]) for ref in refs),
         "sar_products_processed": len(products),
         "safes_without_candidate_cells": safes_without_candidates,
         "safe_candidate_cell_rows": candidate_cells,
@@ -213,7 +203,7 @@ def run(recipe):
         "positive_imagette_reference_file_pairs": sum(d["retained_cells"] > 0 for d in diagnostics),
         "source_code": [file_identity(p) for p in sorted(Path(__file__).parent.rglob("*.py"))],
         "rules": {
-            "policy": "scat_local_ocn_imagette_v1",
+            "policy": adapter.POLICY,
             "imagette_mapping": "local_ocn_geolocation_to_manifest_frame",
             "space": "strict individual imagette footprint point containment",
             "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
@@ -221,11 +211,10 @@ def run(recipe):
             "candidate_padding_seconds": OCN_HEADER_PRECISION_SECONDS,
             "header_precision": "whole-second NC headers use outward-rounded manifest bounds",
             "time_tolerance_minutes": recipe.time_tolerance_minutes,
-            "retention": "all finite wind vectors; retain quality/ice flags without filtering",
+            "retention": adapter.RETENTION,
         },
         "units": {
-            "wind_speed": "m s-1",
-            "wind_direction_to": "degree, flowing toward",
+            **adapter.UNITS,
             "ref_lon": "degrees_east, [-180,180)",
             "ref_lat": "degrees_north",
         },

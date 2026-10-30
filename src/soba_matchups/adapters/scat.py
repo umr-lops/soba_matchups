@@ -14,11 +14,43 @@ from shapely.affinity import translate
 from shapely.geometry import shape
 from shapely.ops import unary_union
 
+POLICY = "scat_local_ocn_imagette_v1"
+TYPE = "scatterometer"
+RETENTION = "all finite wind vectors; retain quality/ice flags without filtering"
+# Point fields written to the Items, in output order, with the unit of each measured value.
+FIELDS = ["wind_speed", "wind_direction_to", "quality_flag", "ice_probability"]
+INTEGER_FIELDS = set()
+UNITS = {"wind_speed": "m s-1", "wind_direction_to": "degree, flowing toward"}
+
+
+def find_files(recipe):
+    """List the granules of the requested days (stop_date exclusive), one folder per day."""
+    paths = []
+    day = recipe.start_date
+    while day < recipe.stop_date:
+        directory = (
+            recipe.reference_root
+            / recipe.platform
+            / recipe.instrument
+            / recipe.resolution
+            / "data"
+            / str(day.year)
+            / day.strftime("%j")
+        )
+        # A day folder holds plain or gzipped NetCDF granules.
+        selected = sorted([*directory.glob("*.nc"), *directory.glob("*.nc.gz")])
+        if not selected:
+            raise ValueError(f"No reference files for requested day: {directory}")
+        paths.extend(selected)
+        day += timedelta(days=1)
+    return paths
+
 
 def match_cells(product, reference, tolerance_minutes):
     """Return indices of reference cells inside the footprint and strictly within the time window.
 
-    The window is the product's start/end widened by the tolerance on each side.
+    The window is the product's start/end widened by the tolerance on each side. The reference
+    arrays hold only cells that already carry a measurement (the adapters filter them on reading).
     """
     start = np.datetime64(product["ContentDate"]["Start"].removesuffix("Z"), "ns")
     end = np.datetime64(product["ContentDate"]["End"].removesuffix("Z"), "ns")
@@ -32,8 +64,6 @@ def match_cells(product, reference, tolerance_minutes):
     mask = (
         np.isfinite(reference["lon"])
         & np.isfinite(reference["lat"])
-        & np.isfinite(reference["wind_speed"])
-        & np.isfinite(reference["wind_dir"])
         & ~np.isnat(reference["time"])
         & (reference["time"] > start - delta)
         & (reference["time"] < end + delta)
@@ -132,9 +162,26 @@ def read_reference(path, *, expected_source="HY-2B HSCAT", expected_resolution="
                 for t in [eligible_times.min(), eligible_times.max()]
             ]
             clocks = [min(clocks[0], observed[0]), max(clocks[1], observed[1])]
-        result = {key: value[valid] for key, value in raw.items()}
+        result = {key: raw[key][valid] for key in ["lon", "lat", "time"]}
+        winds = {
+            key: raw[key][valid]
+            for key in ["wind_speed", "wind_dir", "wvc_quality_flag", "ice_prob"]
+        }
+
+        def fields_at(indices):
+            """Return the point fields of the cells at these positions."""
+            return {
+                "wind_speed": winds["wind_speed"][indices].astype("float64"),
+                "wind_direction_to": winds["wind_dir"][indices].astype("float64"),
+                "quality_flag": winds["wvc_quality_flag"][indices].astype("float64"),
+                "ice_probability": winds["ice_prob"][indices].astype("float64"),
+            }
+
         result.update(
-            granule_start_day=header_start.date(), header_start=header_start, header_end=header_end
+            fields_at=fields_at,
+            granule_start_day=header_start.date(),
+            header_start=header_start,
+            header_end=header_end,
         )
         result.update(
             path=path,

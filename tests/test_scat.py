@@ -99,12 +99,13 @@ def test_knmi_reader_decodes_surveyed_products(tmp_path, case, compressed):
     ref = read_reference(path, expected_source=case[0], expected_resolution=case[1])
     assert ref["flat"].tolist() == [0, 2, 3, 4, 5]
     assert ref["columns"] == 3
-    np.testing.assert_allclose(ref["wind_speed"], [5, 6, 7, 8, 9])
-    np.testing.assert_allclose(ref["wind_dir"], 90)
-    np.testing.assert_allclose(ref["ice_prob"], 0.5)
-    assert ref["wvc_quality_flag"][0] == 2048
-    assert ref["wvc_quality_flag"][1] == 4194304
-    assert np.isnan(ref["wvc_quality_flag"][3])
+    values = ref["fields_at"](np.arange(5))
+    np.testing.assert_allclose(values["wind_speed"], [5, 6, 7, 8, 9])
+    np.testing.assert_allclose(values["wind_direction_to"], 90)
+    np.testing.assert_allclose(values["ice_probability"], 0.5)
+    assert values["quality_flag"][0] == 2048
+    assert values["quality_flag"][1] == 4194304
+    assert np.isnan(values["quality_flag"][3])
     assert ref["time"][0] == np.datetime64("2026-06-29T12:00:01")
     assert ref["source"] == case[0]
     assert ref["version"] == case[2]
@@ -185,12 +186,12 @@ def test_safe_matching_preserves_components_and_strict_boundaries():
     ref = {
         "lon": np.array([0.5, 2.5, 0, 0.5, 0.5, 179.9, -179.9]),
         "lat": np.full(7, 0.5),
-        "wind_speed": np.array([5, 5, 5, 5, np.nan, 5, 5]),
-        "wind_dir": np.full(7, 90.0),
         "time": np.array(["2020-01-10T12:20:00"] * 7, dtype="datetime64[ns]"),
     }
     ref["time"][3] = np.datetime64("2020-01-10T13:30:00")
-    assert match_cells(product, ref, 60).tolist() == [0, 1, 5, 6]
+    # Cell 2 sits on a footprint edge and cell 3 is outside the window. Cells without a
+    # measurement are not here: the readers drop them before matching.
+    assert match_cells(product, ref, 60).tolist() == [0, 1, 4, 5, 6]
 
 
 def test_dateline_seam_is_interior_not_outer_boundary():
@@ -205,8 +206,6 @@ def test_dateline_seam_is_interior_not_outer_boundary():
         "lon": np.array([179.9, -179.9, 180, -180, 179.8, 0]),
         "lat": np.full(6, 10.5),
         "time": np.full(6, np.datetime64("2026-06-29T12:00:01", "ns")),
-        "wind_speed": np.full(6, 5.0),
-        "wind_dir": np.full(6, 90.0),
     }
     assert match_cells(product, ref, 1).tolist() == [0, 1, 2, 3]
 

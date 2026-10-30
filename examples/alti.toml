@@ -1,0 +1,13 @@
+instrument = "alti"
+platform = "jason-3"  # also cryosat-2, jason-2, saral, sentinel-3a, sentinel-3b, sentinel-6a
+resolution = "l2p"
+
+# The folder that holds data/satellite/altimeter/l2p/<mission>/<year>/<day of year>/ of the
+# ESA CCI Sea State v4 files (public: https://data-cersat.ifremer.fr/data/ocean-waves/cci-seastate/v4/).
+reference_root = "/path/to/cci-seastate/v4"
+start_date = "2020-01-01"
+stop_date = "2020-01-02"  # Exclusive; selects the days the altimeter files start on.
+sar_missions = ["S1A", "S1B"]
+time_tolerance_minutes = 30
+sar_archive_root = "/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa"
+output_dir = "../runs/alti-local-001"

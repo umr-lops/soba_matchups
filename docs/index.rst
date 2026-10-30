@@ -42,6 +42,7 @@ Recipes select an explicit ``instrument`` / ``platform`` / ``resolution`` combin
 * ``ascat`` / ``metop-c`` / ``12.5km``.
 * ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
 * ``karin`` / ``swot`` / ``2km``: SWOT KaRIn L2 wave and wind (``examples/swot.toml``).
+* ``alti`` / ``cryosat-2``, ``jason-2``, ``jason-3``, ``saral``, ``sentinel-3a``, ``sentinel-3b`` or ``sentinel-6a`` / ``l2p``: ESA CCI Sea State v4 altimeter wave height (``examples/alti.toml``).
 
 Other combinations, including ``metop-d``, are rejected, not substituted.
 Any processing version is accepted, so the recipe has no version key. Each file's

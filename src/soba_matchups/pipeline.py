@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from soba_matchups import __version__
-from soba_matchups.adapters import scat, swot
+from soba_matchups.adapters import alti, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_metadata import (
@@ -19,7 +19,7 @@ from soba_matchups.sar_metadata import (
 
 
 # One adapter per instrument: it finds the files, reads them and names the point fields.
-ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot}
+ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot, "alti": alti}
 
 
 def reference_inputs(recipe):

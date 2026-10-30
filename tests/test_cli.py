@@ -188,6 +188,7 @@ def test_knmi_cli_product_labels_and_actual_provenance(
     assert manifest["schema_version"] == 11
     assert manifest["reference_product"] == f"KNMI_{suffix.split('_', 1)[1]}"
     assert manifest["stac_items"] == 2
+    assert manifest["imagettes_skipped_without_cell_centres"] == 0
     assert manifest["matchup_imagette_cell_rows"] == 8
     for entry in manifest["reference_inputs"]:
         assert (entry["source"], entry["version"], entry["resolution"]) == (source, version, pixel)

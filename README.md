@@ -40,9 +40,6 @@ apptainer run \
   soba_matchups.sif run --recipe /work/hscat.toml
 ```
 
-Bind the KNMI tree at its real path and set `reference_root` to that path, so the
-asset links in the output name the real files.
-
 ## Output format
 
 See [architecture_SAR_matchups_design_document.md](architecture_SAR_matchups_design_document.md). Usage notes are in the

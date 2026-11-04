@@ -98,7 +98,7 @@ def test_reader_drops_points_without_any_wave_height_and_keeps_original_rows(tmp
         ("start", "disagree"),
         ("units", "units"),
         ("missing_variable", "variables/dimensions"),
-        ("source", "another product"),
+        ("source", "Unsupported altimeter product"),
     ],
 )
 def test_reader_rejects_incompatible_files(tmp_path, change, message):
@@ -157,7 +157,7 @@ def tree(tmp_path, files, layout="l2p"):
         (root / "data/satellite/altimeter" / layout / folder).mkdir(parents=True, exist_ok=True)
         for name in names:
             (root / "data/satellite/altimeter" / layout / folder / name).touch()
-    return SimpleNamespace(reference_root=root, **DAY)
+    return SimpleNamespace(reference_root=root, platform="cci", **DAY)
 
 
 def test_find_files_selects_the_mission_and_the_days(tmp_path):
@@ -193,9 +193,9 @@ def test_find_files_selects_the_mission_and_the_days(tmp_path):
 def test_find_files_reports_a_missing_mission_folder_and_empty_days(tmp_path):
     from soba_matchups.adapters.alti import find_files
 
-    with pytest.raises(ValueError, match="No CCI altimeter files"):
+    with pytest.raises(ValueError, match="No altimeter files"):
         find_files(tree(tmp_path, {"saral/2026/180": []}))
-    with pytest.raises(ValueError, match="No CCI altimeter files"):
+    with pytest.raises(ValueError, match="No altimeter files"):
         find_files(tree(tmp_path / "second", {"jason-3/2026/100": []}))
 
 
@@ -221,7 +221,7 @@ def test_find_files_refuses_two_layouts_at_once(tmp_path):
         find_files(both)
 
 
-def test_one_cci_product_is_registered_and_every_mission_has_a_unique_name():
+def test_two_altimeter_products_are_registered_and_cci_missions_have_unique_names():
     from soba_matchups.adapters.alti import MISSIONS
     from soba_matchups.config import REFERENCE_PRODUCTS
 
@@ -230,7 +230,12 @@ def test_one_cci_product_is_registered_and_every_mission_has_a_unique_name():
         "1 Hz",
         "ESACCI_SEASTATE_L2P",
     )
-    assert not [k for k in REFERENCE_PRODUCTS if k[0] == "alti" and k[1] != "cci"]
+    assert REFERENCE_PRODUCTS[("alti", "cmems", "l3")] == (
+        "CMEMS altimeters",
+        "1 Hz",
+        "CMEMS_WAV_L3_ALTI_VAVH",
+    )
+    assert {k[1] for k in REFERENCE_PRODUCTS if k[0] == "alti"} == {"cci", "cmems"}
     assert len({m[1] for m in MISSIONS.values()}) == len(MISSIONS)
     assert len({m[2] for m in MISSIONS.values()}) == len(MISSIONS)
 
@@ -277,7 +282,7 @@ def test_alti_end_to_end_matches_points_by_time_and_footprint(local_recipe):
     manifest = json.loads((result / "manifest.json").read_text())
     assert manifest["reference_product"] == "ESACCI_SEASTATE_L2P_V4"
     assert manifest["reference_versions"] == ["v4.0_fv01"]
-    assert manifest["rules"]["policy"] == "alti_cci_local_ocn_imagette_v1"
+    assert manifest["rules"]["policy"] == "alti_local_ocn_imagette_v2"
     assert "swh_denoised" in manifest["units"] and "wind_speed" not in manifest["units"]
     (item_path,) = sorted((result / "items").glob("*__IMG001__ESACCI_SEASTATE_L2P_V4.json"))
     props = json.loads(item_path.read_text())["properties"]
@@ -322,11 +327,16 @@ def test_one_recipe_matches_two_missions_and_names_both_in_the_item(local_recipe
     assert sources == ["Jason-3 altimeter", "Sentinel-3 A altimeter"]
 
 
+def cci(version):
+    """A minimal CCI reference record, as the reader returns it."""
+    return {"version": version, "release_in_label": True}
+
+
 def test_product_label_carries_the_release_of_the_files():
     from soba_matchups.adapters.alti import product_suffix
 
-    assert product_suffix([{"version": "v5.0_fv01"}, {"version": "v5.0_fv02"}]) == "_V5"
-    assert product_suffix([{"version": "v4.0_fv01"}]) == "_V4"
+    assert product_suffix([cci("v5.0_fv01"), cci("v5.0_fv02")]) == "_V5"
+    assert product_suffix([cci("v4.0_fv01")]) == "_V4"
 
 
 @pytest.mark.parametrize(
@@ -337,7 +347,7 @@ def test_product_label_refuses_mixed_or_unknown_releases(versions):
     from soba_matchups.adapters.alti import product_suffix
 
     with pytest.raises(ValueError, match="not a single one"):
-        product_suffix([{"version": v} for v in versions])
+        product_suffix([cci(v) for v in versions])
 
 
 def test_cfosat_files_are_found_and_read_as_their_own_mission(tmp_path):
@@ -354,3 +364,132 @@ def test_cfosat_files_are_found_and_read_as_their_own_mission(tmp_path):
     other = write(tmp_path, alti_dataset(platform="Jason-3"), name)
     with pytest.raises(ValueError, match="platform or level"):
         read_reference(other, expected_source="CCI altimeters", expected_resolution="1 Hz")
+
+
+KM = 1 / 111.19  # degrees of latitude per km
+
+
+def imagette_record(
+    half_km=10.0, lat=0.0, start="2026-06-29T12:00:00Z", end="2026-06-29T12:00:03Z"
+):
+    """A SAR imagette at longitude 0: a square footprint of half_km around its centre."""
+    h = half_km * KM
+    ring = [[-h, lat - h], [h, lat - h], [h, lat + h], [-h, lat + h], [-h, lat - h]]
+    return {
+        "ContentDate": {"Start": start, "End": end},
+        "GeoFootprint": {"type": "Polygon", "coordinates": [ring]},
+        "Centre": [0.0, lat],
+    }
+
+
+def track(north_km, seconds, east_km=0.0):
+    """Reference arrays as the reader returns them: points north_km north of the centre."""
+    base = np.datetime64("2026-06-29T12:00:00", "ns")
+    return {
+        "lon": np.array(east_km, dtype="float64").reshape(-1) * KM + np.zeros(len(north_km)),
+        "lat": np.array(north_km, dtype="float64") * KM,
+        "time": base + (np.array(seconds) * 1e9).astype("int64").astype("timedelta64[ns]"),
+    }
+
+
+def test_fallback_candidates_are_the_points_in_radius_and_window_with_their_time_gaps():
+    from soba_matchups.adapters.alti import fallback_imagette
+
+    # Footprint half width 10 km; points 15, 20 and 25 km north, then one beyond 30 km, then one
+    # near but 3 h late. Gaps are seconds from the imagette midpoint (12:00:01.5).
+    ref = track([15, 20, 25, 31, 15], [900, 600, 1200, 600, 3 * 3600])
+    candidates, gaps = fallback_imagette(imagette_record(), ref, 30)
+    assert candidates.tolist() == [0, 1, 2]
+    assert gaps.tolist() == pytest.approx([898.5, 598.5, 1198.5])
+
+
+def test_the_fallback_radius_and_window_are_strict():
+    from soba_matchups.adapters.alti import fallback_imagette
+
+    for north_km, seconds, expected in [
+        (29.0, 600, [0]),  # inside 30 km, inside the window
+        (31.0, 600, []),  # outside 30 km
+        (15.0, 3 * 3600, []),  # near, but 3 h after the imagette
+    ]:
+        ref = track([north_km], [seconds])
+        assert fallback_imagette(imagette_record(), ref, 30)[0].tolist() == expected
+
+
+def test_the_safe_pass_keeps_only_points_near_one_of_its_imagettes():
+    from soba_matchups.adapters.alti import match_safe
+
+    far = imagette_record()
+    far["Centre"] = [10.0, 0.0]
+    product = {
+        "ContentDate": {"Start": "2026-06-29T12:00:00Z", "End": "2026-06-29T12:10:03Z"},
+        "Imagettes": [imagette_record(), far],
+    }
+    ref = track([25, 25, 25, 25], [60, 60, 60, 4 * 3600])
+    ref["lon"] = np.array([0.0, 10.0, 5.0, 0.0])
+    # Row 0 is 25 km from the first centre, row 1 25 km from the second, row 2 is 550 km from
+    # both, and row 3 is 4 hours late.
+    assert match_safe(product, ref, 30).tolist() == [0, 1]
+
+
+def run_alti_synthetic(local_recipe, points, name):
+    """Run the tool on the synthetic SAFE; points are (folder, token, platform, dataset)."""
+    from soba_matchups.cli import main
+
+    root = local_recipe.parent
+    for mission_folder, mission_token, mission_platform, ds in points:
+        folder = root / "cci" / f"data/satellite/altimeter/l2p/{mission_folder}/2026/180"
+        folder.mkdir(parents=True, exist_ok=True)
+        ds.to_netcdf(folder / f"ESACCI-SEASTATE-L2P-SWH-{mission_token}-20260629T120500-fv01.nc")
+    recipe = root / f"{name}.toml"
+    recipe.write_text(
+        local_recipe.read_text()
+        .replace('instrument = "hscat"', 'instrument = "alti"')
+        .replace('platform = "hy-2b"', 'platform = "cci"')
+        .replace('resolution = "25km"', 'resolution = "l2p"')
+        .replace('reference_root = "reference"', 'reference_root = "cci"')
+        .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 30")
+        .replace('output_dir = "result"', f'output_dir = "{name}_result"')
+    )
+    assert main(["run", "--recipe", str(recipe)]) == 0
+    return root / f"{name}_result"
+
+
+def moved(ds, north_km, platform):
+    """The synthetic file moved so that its points sit north_km north of the imagette centre."""
+    ds["lon"].values[:] = 0.5
+    ds["lat"].values[:] = 0.5 + north_km * KM
+    ds.attrs["platform"] = platform
+    return ds
+
+
+def test_points_beyond_footprint_and_radius_give_no_item(local_recipe):
+    # Imagette 1 is a 1 degree square centred on (0.5, 0.5); its edge is 55 km from the centre.
+    # Points 60 km north are outside the footprint and beyond 30 km: no match.
+    far = run_alti_synthetic(
+        local_recipe,
+        [("jason-3", "Jason-3", "Jason-3", moved(alti_dataset(), 60, "Jason-3"))],
+        "far",
+    )
+    assert not list((far / "items").glob("*__IMG001__*.json"))
+
+
+def test_points_inside_the_footprint_are_all_kept_for_every_mission(local_recipe):
+    # Two missions with five points each, 5 km from the centre: all ten are inside the footprint.
+    # The fallback itself is covered above; a footprint this wide cannot leave a gap before 30 km.
+    result = run_alti_synthetic(
+        local_recipe,
+        [
+            ("jason-3", "Jason-3", "Jason-3", moved(alti_dataset(), 5, "Jason-3")),
+            (
+                "sentinel-3_a",
+                "Sentinel-3_A",
+                "Sentinel-3 A",
+                moved(alti_dataset(), 5, "Sentinel-3 A"),
+            ),
+        ],
+        "inside",
+    )
+    (item,) = sorted((result / "items").glob("*__IMG001__*.json"))
+    props = json.loads(item.read_text())["properties"]
+    assert props["sarmatchup:n_coloc_points"] == 10
+    assert "closest in time" in json.loads((result / "manifest.json").read_text())["rules"]["space"]

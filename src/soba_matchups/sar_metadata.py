@@ -15,7 +15,6 @@ from shapely.ops import unary_union
 
 from .output import file_identity
 
-IMAGETTE_MAPPING_POLICY = "local_ocn_geolocation_to_manifest_frame"
 OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
     r"S1[ABCD]_WV_(?P<producttype>OCN|SLC)__"
@@ -356,7 +355,8 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 "index": index,
                 "ContentDate": dict(zip(("Start", "End"), map(_iso, times))),
                 "GeoFootprint": frames[matches[0]],
-                "mapping_policy": IMAGETTE_MAPPING_POLICY,
+                # The mean of the OSW cell centres (a WV imagette has one), as [lon, lat].
+                "Centre": [float(np.mean(lon[valid])), float(np.mean(lat[valid]))],
                 "href": path.as_uri(),
                 "metadata_inputs": [identity],
             }

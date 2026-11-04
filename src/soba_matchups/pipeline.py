@@ -56,7 +56,15 @@ def run(recipe):
     # The label of the reference product, used in the Item file names. An adapter can add the
     # release of its files (CCI: "_V5"); this fails before any matching if they mix releases.
     label = REFERENCE_PRODUCTS[(recipe.instrument, recipe.platform, recipe.resolution)][2]
+    # An adapter may name its own point fields (altimeters); the others use the module's.
+    point_fields = refs[0].get("fields", adapter.FIELDS)
+    integer_fields = refs[0].get("integer_fields", adapter.INTEGER_FIELDS)
+    units = refs[0].get("units", adapter.UNITS)
     label += getattr(adapter, "product_suffix", lambda refs: "")(refs)
+    # An adapter can replace the SAFE matching step and add a fallback for imagettes that no
+    # reference point falls inside (altimeters do both).
+    match_safe = getattr(adapter, "match_safe", scat.match_cells)
+    fallback_imagette = getattr(adapter, "fallback_imagette", None)
     delta = timedelta(minutes=recipe.time_tolerance_minutes)
     precision = timedelta(seconds=OCN_HEADER_PRECISION_SECONDS)
 
@@ -87,7 +95,7 @@ def run(recipe):
         candidates = [
             (
                 ref,
-                scat.match_cells(
+                match_safe(
                     product, ref, recipe.time_tolerance_minutes + OCN_HEADER_PRECISION_SECONDS / 60
                 ),
             )
@@ -100,13 +108,34 @@ def run(recipe):
         for imagette in product["Imagettes"]:
             imagettes_processed += 1
             groups = []
-            for ref, safe_indices in candidates:
+            subsets = [
+                {key: ref[key][safe_indices] for key in ["lon", "lat", "time"]}
+                if len(safe_indices)
+                else None
+                for ref, safe_indices in candidates
+            ]
+            # Every point inside the footprint and the time window, in each reference file.
+            picked = [
+                safe_indices[scat.match_cells(imagette, subset, recipe.time_tolerance_minutes)]
+                if subset is not None
+                else safe_indices[:0]
+                for (_, safe_indices), subset in zip(candidates, subsets)
+            ]
+            if fallback_imagette is not None and not any(len(indices) for indices in picked):
+                # No file has a point inside: keep the one closest in time over all files (the
+                # first file wins a tie).
+                best = None
+                for k, ((_, safe_indices), subset) in enumerate(zip(candidates, subsets)):
+                    if subset is None:
+                        continue
+                    local, gaps = fallback_imagette(imagette, subset, recipe.time_tolerance_minutes)
+                    if len(local) and (best is None or gaps.min() < best[0]):
+                        best = (gaps.min(), k, safe_indices[local[gaps.argmin()]])
+                if best is not None:
+                    picked[best[1]] = np.array([best[2]])
+            for (ref, safe_indices), indices in zip(candidates, picked):
                 if not len(safe_indices):
                     continue
-                subset = {key: ref[key][safe_indices] for key in ["lon", "lat", "time"]}
-                indices = safe_indices[
-                    scat.match_cells(imagette, subset, recipe.time_tolerance_minutes)
-                ]
                 values = ref["fields_at"](indices) if len(indices) else {}
                 points = []
                 for position, i in enumerate(indices):
@@ -128,8 +157,8 @@ def run(recipe):
                             "ref_lon": float((ref["lon"][i] + 180) % 360 - 180),
                             "ref_lat": float(ref["lat"][i]),
                             **{
-                                key: number(values[key][position], key in adapter.INTEGER_FIELDS)
-                                for key in adapter.FIELDS
+                                key: number(values[key][position], key in integer_fields)
+                                for key in point_fields
                             },
                         }
                     )
@@ -207,7 +236,9 @@ def run(recipe):
         "rules": {
             "policy": adapter.POLICY,
             "imagette_mapping": "local_ocn_geolocation_to_manifest_frame",
-            "space": "strict individual imagette footprint point containment",
+            "space": getattr(
+                adapter, "SPACE", "strict individual imagette footprint point containment"
+            ),
             "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
             "time_source": "OCN firstMeasurementTime / lastMeasurementTime UTC attributes",
             "candidate_padding_seconds": OCN_HEADER_PRECISION_SECONDS,
@@ -216,7 +247,7 @@ def run(recipe):
             "retention": adapter.RETENTION,
         },
         "units": {
-            **adapter.UNITS,
+            **units,
             "ref_lon": "degrees_east, [-180,180)",
             "ref_lat": "degrees_north",
         },

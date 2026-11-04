@@ -83,7 +83,6 @@ def test_native_centres_not_frame_order_and_verified_inputs(tmp_path):
         assert shape(row["GeoFootprint"]).covers(Point(lon, 0.5))
         assert row["Name"] in names
         assert row["href"].startswith("file:")
-        assert row["mapping_policy"] == "local_ocn_geolocation_to_manifest_frame"
     assert shape(product["GeoFootprint"]).area == 2
     assert provenance["source"] == "local_ocn"
     assert len(provenance["manifest_inputs"]) == 1

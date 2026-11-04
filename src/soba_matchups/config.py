@@ -24,6 +24,7 @@ REFERENCE_PRODUCTS = {
     ("hscat", "hy-2d", "25km"): ("HY-2D HSCAT", "25.0 km", "KNMI_HSCAT_HY2D_25KM"),
     ("karin", "swot", "2km"): ("SWOT KaRIn", "2 km", "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"),
     ("alti", "cci", "l2p"): ("CCI altimeters", "1 Hz", "ESACCI_SEASTATE_L2P"),
+    ("alti", "cmems", "l3"): ("CMEMS altimeters", "1 Hz", "CMEMS_WAV_L3_ALTI_VAVH"),
 }
 
 

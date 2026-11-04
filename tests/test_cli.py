@@ -31,10 +31,7 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         assert item["type"] == "Feature"
         assert item["stac_version"] == "1.0.0"
         assert item["assets"]["sar"]["href"].startswith("file:")
-        assert (
-            item["properties"]["sarmatchup:mapping_policy"]
-            == "local_ocn_geolocation_to_manifest_frame"
-        )
+        assert "sarmatchup:mapping_policy" not in item["properties"]
         groups = item["properties"]["sarmatchup:matchups"]
         # Reference assets point at the configured absolute root, not a container mount.
         root = (local_recipe.parent / "reference").resolve().as_uri()

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/umr-lops/soba_matchups/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/umr-lops/soba_matchups/actions/workflows/ci.yml)
 [![Build](https://github.com/umr-lops/soba_matchups/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/umr-lops/soba_matchups/actions/workflows/build.yml)
-[![Docs](https://app.readthedocs.org/projects/soba-matchups/badge/?version=latest)](https://soba-matchups.readthedocs.io/en/latest/)
+[![Docs](https://img.shields.io/readthedocs/soba-matchups?logo=readthedocs)](https://soba-matchups.readthedocs.io/en/latest/)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](.pre-commit-config.yaml)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

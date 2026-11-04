@@ -103,7 +103,6 @@ def imagette_item(product, imagette, fields, groups, tolerance):
             "sarmatchup:imagette_index": imagette["index"],
             "sarmatchup:measurement_name": imagette["Name"],
             "sarmatchup:polarization": fields["polarization"],
-            "sarmatchup:mapping_policy": imagette["mapping_policy"],
             "sarmatchup:matchups": matchups,
         },
         "assets": assets,

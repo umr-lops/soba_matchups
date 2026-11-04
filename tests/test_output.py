@@ -16,7 +16,6 @@ def item():
         "href": "file:///synthetic.nc",
         "ContentDate": {"Start": "2026-06-29T12:00:00Z", "End": "2026-06-29T12:00:04Z"},
         "GeoFootprint": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
-        "mapping_policy": "synthetic unit fixture",
     }
     groups = [
         {

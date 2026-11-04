@@ -223,7 +223,6 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI, one per reference file. |
 | `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. |
 | `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI: `1 Hz`, the sampling of the points. |
-| `sarmatchup:other_id` | Same value as `reference_file`, scoped to this group. |
 | `points` | Matched observations, section 8. |
 
 ## 8. Points
@@ -280,8 +279,8 @@ for that point.
 A file also holds model fields, backscatter, distance to coast and bathymetry; none is written.
 The quality level and rejection flags are recorded and never used to filter, so a user who wants
 the good points keeps `swh_quality_level` 3. The v5 fields `swh_with_8m_offset_correction*` are
-not written. The missions read are CryoSat-2, Jason-2, Jason-3, SARAL, Sentinel-3 A,
-Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own mission as `reference_source`.
+not written. The missions read are CFOSAT (v5 only; SWIM wave height), CryoSat-2, Jason-2, Jason-3, SARAL,
+Sentinel-3 A, Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own mission as `reference_source`.
 
 ### Matching rule
 

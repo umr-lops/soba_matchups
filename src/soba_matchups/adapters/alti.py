@@ -34,6 +34,7 @@ UNITS = {
 # Mission -> (mission folders, name token in the files, "platform" attribute).
 # Exactly one folder must exist; v4 names the Sentinel-6 folder "sentinel-6", v5 "sentinel-6_a".
 MISSIONS = {
+    "cfosat": (("cfosat",), "CFOSAT", "CFOSAT"),
     "cryosat-2": (("cryosat-2",), "CryoSat-2", "CryoSat-2"),
     "jason-2": (("jason-2",), "Jason-2", "Jason-2"),
     "jason-3": (("jason-3",), "Jason-3", "Jason-3"),

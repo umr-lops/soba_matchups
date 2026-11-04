@@ -279,8 +279,8 @@ for that point.
 A file also holds model fields, backscatter, distance to coast and bathymetry; none is written.
 The quality level and rejection flags are recorded and never used to filter, so a user who wants
 the good points keeps `swh_quality_level` 3. The v5 fields `swh_with_8m_offset_correction*` are
-not written. The missions read are CryoSat-2, Jason-2, Jason-3, SARAL, Sentinel-3 A,
-Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own mission as `reference_source`.
+not written. The missions read are CFOSAT (v5 only; SWIM wave height), CryoSat-2, Jason-2, Jason-3, SARAL,
+Sentinel-3 A, Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own mission as `reference_source`.
 
 ### Matching rule
 

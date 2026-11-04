@@ -338,3 +338,19 @@ def test_product_label_refuses_mixed_or_unknown_releases(versions):
 
     with pytest.raises(ValueError, match="not a single one"):
         product_suffix([{"version": v} for v in versions])
+
+
+def test_cfosat_files_are_found_and_read_as_their_own_mission(tmp_path):
+    from soba_matchups.adapters.alti import find_files, read_reference
+
+    name = "ESACCI-SEASTATE-L2P-SWH-CFOSAT-20260629T120500-fv01.nc"
+    recipe = tree(tmp_path / "ref", {"cfosat/2026/180": []}, layout="l2p-swh")
+    directory = recipe.reference_root / "data/satellite/altimeter/l2p-swh/cfosat/2026/180"
+    path = write(directory, alti_dataset(platform="CFOSAT"), name)
+    assert find_files(recipe) == [path]
+    ref = read_reference(path, expected_source="CCI altimeters", expected_resolution="1 Hz")
+    assert ref["source"] == "CFOSAT altimeter" and ref["version"] == "v4.0_fv01"
+    # A file named for CFOSAT whose attributes say another platform is refused.
+    other = write(tmp_path, alti_dataset(platform="Jason-3"), name)
+    with pytest.raises(ValueError, match="platform or level"):
+        read_reference(other, expected_source="CCI altimeters", expected_resolution="1 Hz")

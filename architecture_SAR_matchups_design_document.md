@@ -223,7 +223,6 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI, one per reference file. |
 | `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. |
 | `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI: `1 Hz`, the sampling of the points. |
-| `sarmatchup:other_id` | Same value as `reference_file`, scoped to this group. |
 | `points` | Matched observations, section 8. |
 
 ## 8. Points

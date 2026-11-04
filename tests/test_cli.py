@@ -74,7 +74,7 @@ def test_local_stac_run_groups_granules_and_preserves_output(local_recipe, monke
         groups = props["sarmatchup:matchups"]
         assert props["sarmatchup:n_coloc_points"] == sum(len(g["points"]) for g in groups)
         for group in groups:
-            assert group["sarmatchup:other_id"] == group["reference_file"]
+            assert "sarmatchup:other_id" not in group
             assert "reference_geometry" not in group
             for point in group["points"]:
                 assert point["delta_diff_time_minutes"] == -0.5 / 60

@@ -1,29 +1,14 @@
 # SAR matchups design document
 
 This document specifies the matchup collections and what `soba_matchups run` writes:
-STAC 1.0.0 Items and three run files. The run manifest layout is `schema_version` 11.
+STAC 1.0.0 Items and three run files.
 
-The output is a matchup index. Each Item links one Sentinel-1 WV OCN imagette to
-reference observations that fall inside it: KNMI L2B scatterometer winds (ASCAT or
-HSCAT), SWOT KaRIn L2 wave heights and winds, or ESA CCI Sea State altimeter wave
-heights. It is not an enriched co-aligned Parquet or NetCDF product.
-
-One adapter per reference instrument finds the reference files, reads them and names
-the point fields (`soba_matchups.adapters`: `scat` for ASCAT and HSCAT, `swot` for
-KaRIn, `alti` for the CCI altimeters). The SAR side and the matching rule are the same
-for every adapter.
 
 ## 1. Product types and collections
 
-The tool reads Sentinel-1 WV Level-2 OCN products only. Discovery rejects any other
+The tool reads **Sentinel-1 WV Level-2 OCN products only (No support for SLC and no migration to Daily files yet)**. Discovery rejects any other
 product type.
 
-The co-aligned catalogue links each WV acquisition to two products, OCN and SLC. Its
-rows carry `sar_path_ocn`, `sar_path_slc`, `sar_safe_ocn` and `sar_safe_slc`, and no
-GRD column. On the one OCN/SLC pair compared, both manifests had 64 frames, and the
-frame of imagette 3 had an intersection over union of 0.9984 (largest vertex offset
-0.00016°). The same imagette has the same number, the same datatake and nearly the
-same times in both products.
 
 One collection per product type:
 
@@ -31,7 +16,7 @@ One collection per product type:
 | --- | --- | --- |
 | `sar-matchups-wv-ocn` | Sentinel-1 WV L2 OCN | Items implemented; no collection document |
 | `sar-matchups-wv-slc` | Sentinel-1 WV L1 SLC | not implemented |
-| none | GRD | no WV GRD product appears in the catalogue; confirm it exists before defining a collection |
+
 
 - One run reads one product type. A run or a collection never mixes types: the OCN
   Item and the SLC Item of one imagette have the same footprint and time, so they
@@ -40,12 +25,7 @@ One collection per product type:
   `sarmatchup:sar_product_type`. The file naming in section 3 needs no change.
 - A recipe key `product_type` (default `OCN`) would select the collection. Not
   implemented.
-- SLC has no OSW cell centres, so the footprint rule changes: the imagette frame
-  would come from the annotation's geolocation grid. On one imagette, the grid's
-  centroid fell in the same frame that the OCN rule selects. Not implemented.
-- Today `links` is `[]` and Items carry no `collection` field. Writing one
-  `collection.json` per product type, and linking each Item to it, is part of this
-  design. Not implemented.
+
 
 ## 2. Run folder
 
@@ -93,16 +73,13 @@ Product label by recipe:
 | `ascat` / `metop-c` / `12.5km` | `KNMI_ASCAT_METOPC_12P5KM` |
 | `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_D0` |
 | `alti` / `cci` / `l2p` | `ESACCI_SEASTATE_L2P_V<release>`, for example `ESACCI_SEASTATE_L2P_V5` (all CCI altimeter missions of the root) |
+| `alti` / `cmems` / `l3` | `CMEMS_WAV_L3_ALTI_VAVH` (all CMEMS altimeter missions of the root; no release in the label) |
 
 The same imagette matched to SWOT is named
 `S1D_WV_OCN__2SSV_20260622T213558_20260622T214335_003354_005E47_1F38__IMG010__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json`.
 
 The processing version of the reference files is not part of the name. The Item
-records it per granule (`reference_version`). The name does not encode the time
-tolerance either, so use a fresh output folder for each run. A duplicate name inside
-one run stops publication.
-
-The convention is implemented in `soba_matchups.output.item_filename`.
+records it per granule (`reference_version`).
 
 The SAFE name already holds the product type (`OCN__2S`, `SLC__1S`), so the same
 convention applies to every collection.
@@ -111,22 +88,13 @@ convention applies to every collection.
 
 One Item per imagette holds every reference observation that passes the matching
 rule in section 8: a measured cell, inside the footprint, within the time tolerance. Nothing is dropped for quality or ice flags, and nothing is reduced to a
-single best point.
+single best point, except for the altimeter fallback of section 8.
 
 - Points are grouped by reference granule in `sarmatchup:matchups` (section 7), with
   one group and one asset per granule.
 - `sarmatchup:n_coloc_points` is the total. `sarmatchup:delta_diff_time_minutes_min`
   and `_max` summarise the signed time differences.
 - An imagette without a point has no Item.
-- Counts seen in tests (KNMI): 1,151 points on 1,150 imagettes for HY-2D HSCAT 25 km, and
-  52 points on 21 imagettes for MetOp-B ASCAT 12.5 km (version 2401). One imagette
-  holds one or several points, and several more often with ASCAT 12.5 km.
-- The co-aligned catalogue holds one row, one reference cell, per imagette. In every
-  comparison run, each catalogue pair is also in the Items, and the Items add the
-  other cells of the footprint.
-- With SWOT, one imagette holds the cells of every SWOT line that crosses it, from about
-  3 to 117 cells in the test run (median 98). An imagette seen by two SWOT passes gets
-  two granule groups in one Item.
 - Choosing one point per imagette, for example the one nearest the centre, is a
   downstream step. The footprint is the Item geometry, and each point has its position
   and time difference. The distance to the centre is not stored.
@@ -192,8 +160,8 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:sar_instrument_mode` | `WV` |
 | `sarmatchup:sar_product_type` | `OCN` |
 | `sarmatchup:sar_safe` | Full parent SAFE name. |
-| `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT` or `SWOT KaRIn`. For the CCI altimeters, the missions of the Item joined by ` + `, for example `Jason-3 altimeter + Sentinel-3 A altimeter`. |
-| `sarmatchup:other_type` | `scatterometer` for ASCAT and HSCAT, `altimeter` for SWOT KaRIn and the CCI altimeters. |
+| `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT` or `SWOT KaRIn`. For the CCI and CMEMS altimeters, the missions of the Item joined by ` + `, for example `Jason-3 altimeter + Sentinel-3 A altimeter`. |
+| `sarmatchup:other_type` | `scatterometer` for ASCAT and HSCAT, `altimeter` for SWOT KaRIn and the CCI and CMEMS altimeters. |
 | `sarmatchup:other_geometry_type` | `MultiPoint`: the reference observations are points, given by `ref_lon` and `ref_lat`, not a swath outline. |
 | `sarmatchup:searching_window_hours` | Time tolerance in hours, applied on each side of the acquisition interval. |
 | `sarmatchup:lib_version` | `soba_matchups` version. |
@@ -202,15 +170,11 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:imagette_index` | Imagette number from the measurement file name. |
 | `sarmatchup:measurement_name` | Name of the imagette NetCDF file. |
 | `sarmatchup:polarization` | `VV` or `HH`. |
-| `sarmatchup:mapping_policy` | `local_ocn_geolocation_to_manifest_frame`: how the imagette footprint was chosen. |
 | `sarmatchup:matchups` | Array of granule groups, section 7. |
 
 `sarmatchup:n_coloc_points` counts associations, not distinct coordinates. Two
 observations at one location stay two associations. Repeated identical associations
 are discarded by their `record_id`.
-
-Not in the Item: the sea percentage of the footprint. It belongs to a later
-ancillary step, not to the matchup step.
 
 ## 7. Granule groups
 
@@ -220,14 +184,14 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | --- | --- |
 | `reference_asset` | Key of this granule in `assets`. |
 | `reference_file` | Original granule file name. |
-| `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI, one per reference file. |
-| `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. |
-| `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI: `1 Hz`, the sampling of the points. |
+| `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI and CMEMS, one per reference file; the mission is the file's `platform` attribute, for example `Sentinel-3 A altimeter` (CCI) or `HaiYang-2B altimeter` (CMEMS). |
+| `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. CMEMS: product release from the file's `product_version` attribute and the generation stamp of the name, for example `v6.0_g20241221T050553`. |
+| `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI and CMEMS: `1 Hz`, the sampling of the points. |
 | `points` | Matched observations, section 8. |
 
 ## 8. Points
 
-Fields common to every reference:
+### Common fields
 
 | Field | Meaning |
 | --- | --- |
@@ -239,7 +203,7 @@ Fields common to every reference:
 | `ref_lat` | Latitude in degrees north. |
 | `delta_diff_time_minutes` | Observation time minus the imagette midpoint, in minutes. Positive means the observation is later. |
 
-KNMI fields (ASCAT, HSCAT):
+### KNMI fields (ASCAT, HSCAT)
 
 | Field | Meaning |
 | --- | --- |
@@ -248,7 +212,7 @@ KNMI fields (ASCAT, HSCAT):
 | `quality_flag` | Original numeric flag, `null` if not finite. |
 | `ice_probability` | Original `ice_prob`, `null` if not finite. No unit conversion. |
 
-SWOT fields (a value is `null` if the file has none for that cell):
+### SWOT fields
 
 | Field | Meaning |
 | --- | --- |
@@ -259,12 +223,7 @@ SWOT fields (a value is `null` if the file has none for that cell):
 | `wind_speed_karin_qual`, `wind_speed_karin_2_qual` | Quality flags of the two wind speeds, original integers. |
 | `dynamic_ice_flag`, `rain_flag` | Original integer flags. |
 
-SWOT has no wind direction field, so none is written.
-
-CCI altimeter fields (ESA CCI Sea State L2P, versions v4 and v5). A file holds one point per
-row at about 1 Hz, so `ref_row_0based` is the row of the point and `ref_cell_0based` is always 0.
-Definitions are the files' own `long_name` attributes. A value is `null` if the file has none
-for that point.
+### ALTI CCI fields
 
 | Field | Meaning |
 | --- | --- |
@@ -276,11 +235,13 @@ for that point.
 | `swh_rejection_flags` | Flags raised when the quality level was lowered, original integer bit mask: 1 too few valid values, 2 validity, 4 sea ice, 8 rms outlier, 16 outlier test. |
 | `sea_ice_fraction` | Fraction of sea ice in the water, 1. |
 
-A file also holds model fields, backscatter, distance to coast and bathymetry; none is written.
-The quality level and rejection flags are recorded and never used to filter, so a user who wants
-the good points keeps `swh_quality_level` 3. The v5 fields `swh_with_8m_offset_correction*` are
-not written. The missions read are CFOSAT (v5 only; SWIM wave height), CryoSat-2, Jason-2, Jason-3, SARAL,
-Sentinel-3 A, Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own mission as `reference_source`.
+### ALTI CMEMS fields
+
+| Field | Meaning |
+| --- | --- |
+| `VAVH` | Significant wave height, bias corrected and filtered, calibrated against buoys (Sepulveda et al., 2015), m. |
+| `VAVH_UNFILTERED` | Significant wave height, bias corrected, calibrated against buoys (Sepulveda et al., 2015), m. |
+| `WIND_SPEED` | Equivalent 10 m wind speed derived from the altimeter, bias corrected relative to a reference mission, m s-1. |
 
 ### Matching rule
 
@@ -288,16 +249,16 @@ Sentinel-3 A, Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own m
 imagette_start - tolerance < observation_time < imagette_end + tolerance
 ```
 
-The observation must also lie strictly inside the footprint of the same imagette.
-The dateline cut is not a footprint boundary: a cell at 179.9° and a cell at -179.9°
-both match a footprint that straddles it. Quality and ice flags are recorded, never
-used to filter. What counts as a measured cell depends on the reference: every finite
-wind vector for KNMI, a finite wave height or a finite wind speed for SWOT, and a finite
-value of `swh`, `swh_adjusted` or `swh_denoised` for the CCI altimeters.
+For every reference, an observation matches when it is inside this time window and strictly
+inside the footprint of the same imagette. The dateline is not a footprint boundary: a cell at
+179.9° and a cell at -179.9° both match a footprint that straddles it. Quality and ice flags are
+recorded, never used to filter. Where a reference differs:
 
-A SWOT file holds lines across the swath, each with one time shared by its pixels. The
-time test is made on each line's time, and the footprint test on each pixel's centre.
-A cell matches only if both pass.
+- **SWOT:** the time test is made on each line's time (shared by the line's pixels) and the
+  footprint test on each pixel's centre.
+- **ALTI (CCI and CMEMS):** all points inside the footprint are kept. If none is inside, the
+  tool keeps one point: among those within 30 km of the imagette's OSW cell centre and inside
+  the time window, the one closest in time to the imagette midpoint, over all missions and files.
 
 ## 9. Assets
 

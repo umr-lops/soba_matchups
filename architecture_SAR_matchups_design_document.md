@@ -11,7 +11,7 @@ heights. It is not an enriched co-aligned Parquet or NetCDF product.
 One adapter per reference instrument finds the reference files, reads them and names
 the point fields (`soba_matchups.adapters`: `scat` for ASCAT and HSCAT, `swot` for
 KaRIn, `alti` for the CCI altimeters). The SAR side and the matching rule are the same
-for every adapter. Section 12 describes the altimeter reference.
+for every adapter.
 
 ## 1. Product types and collections
 
@@ -92,8 +92,7 @@ Product label by recipe:
 | `ascat` / `metop-b` / `5.7km` | `KNMI_ASCAT_METOPB_5P7KM` |
 | `ascat` / `metop-c` / `12.5km` | `KNMI_ASCAT_METOPC_12P5KM` |
 | `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_D0` |
-| `alti` / `jason-3` / `l2p` | `ESACCI_SEASTATE_L2P_JASON3` |
-| `alti` / `cryosat-2`, `jason-2`, `saral`, `sentinel-3a`, `sentinel-3b`, `sentinel-6a` / `l2p` | `ESACCI_SEASTATE_L2P_` plus `CRYOSAT2`, `JASON2`, `SARAL`, `S3A`, `S3B`, `S6A` |
+| `alti` / `cci` / `l2p` | `ESACCI_SEASTATE_L2P_V<release>`, for example `ESACCI_SEASTATE_L2P_V5` (all CCI altimeter missions of the root) |
 
 The same imagette matched to SWOT is named
 `S1D_WV_OCN__2SSV_20260622T213558_20260622T214335_003354_005E47_1F38__IMG010__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json`.
@@ -193,7 +192,7 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:sar_instrument_mode` | `WV` |
 | `sarmatchup:sar_product_type` | `OCN` |
 | `sarmatchup:sar_safe` | Full parent SAFE name. |
-| `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT`, `SWOT KaRIn` or `Jason-3 altimeter`. |
+| `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT` or `SWOT KaRIn`. For the CCI altimeters, the missions of the Item joined by ` + `, for example `Jason-3 altimeter + Sentinel-3 A altimeter`. |
 | `sarmatchup:other_type` | `scatterometer` for ASCAT and HSCAT, `altimeter` for SWOT KaRIn and the CCI altimeters. |
 | `sarmatchup:other_geometry_type` | `MultiPoint`: the reference observations are points, given by `ref_lon` and `ref_lat`, not a swath outline. |
 | `sarmatchup:searching_window_hours` | Time tolerance in hours, applied on each side of the acquisition interval. |
@@ -221,7 +220,7 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | --- | --- |
 | `reference_asset` | Key of this granule in `assets`. |
 | `reference_file` | Original granule file name. |
-| `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI. |
+| `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI, one per reference file. |
 | `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. |
 | `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI: `1 Hz`, the sampling of the points. |
 | `sarmatchup:other_id` | Same value as `reference_file`, scoped to this group. |
@@ -263,18 +262,26 @@ SWOT fields (a value is `null` if the file has none for that cell):
 
 SWOT has no wind direction field, so none is written.
 
-CCI altimeter fields (a value is `null` if the file has none for that point; the row index
-is `ref_row_0based` and `ref_cell_0based` is always 0, since a file has one point per row):
+CCI altimeter fields (ESA CCI Sea State L2P, versions v4 and v5). A file holds one point per
+row at about 1 Hz, so `ref_row_0based` is the row of the point and `ref_cell_0based` is always 0.
+Definitions are the files' own `long_name` attributes. A value is `null` if the file has none
+for that point.
 
 | Field | Meaning |
 | --- | --- |
-| `swh` | Significant wave height, m. |
-| `swh_adjusted` | Wave height after the project's adjustment, m. |
-| `swh_denoised` | Wave height after denoising, m. |
-| `swh_uncertainty` | Wave height uncertainty, m. |
-| `swh_quality_level` | 0 undefined, 1 bad, 2 acceptable, 3 good. Original integer. |
-| `swh_rejection_flags` | Bit mask: 1 too few valid values, 2 validity, 4 sea ice, 8 rms outlier, 16 outlier test. |
-| `sea_ice_fraction` | Fraction of sea ice, 1. |
+| `swh` | Significant wave height from the altimeter retracker, without cross-mission bias correction, m. |
+| `swh_adjusted` | Significant wave height, bias corrected, m. |
+| `swh_denoised` | Significant wave height, bias corrected and denoised (EMD denoising by Quilfen et al.), m. |
+| `swh_uncertainty` | Theoretical uncertainty from speckle noise and sampling in the 1 Hz average, m. |
+| `swh_quality_level` | Quality of the wave height: 0 undefined, 1 bad, 2 acceptable, 3 good. Original integer. |
+| `swh_rejection_flags` | Flags raised when the quality level was lowered, original integer bit mask: 1 too few valid values, 2 validity, 4 sea ice, 8 rms outlier, 16 outlier test. |
+| `sea_ice_fraction` | Fraction of sea ice in the water, 1. |
+
+A file also holds model fields, backscatter, distance to coast and bathymetry; none is written.
+The quality level and rejection flags are recorded and never used to filter, so a user who wants
+the good points keeps `swh_quality_level` 3. The v5 fields `swh_with_8m_offset_correction*` are
+not written. The missions read are CryoSat-2, Jason-2, Jason-3, SARAL, Sentinel-3 A,
+Sentinel-3 B and Sentinel-6 A. Each reference file keeps its own mission as `reference_source`.
 
 ### Matching rule
 
@@ -332,58 +339,3 @@ Messages from `stac-check` on a normal Item:
 - "Coordinates may be in the wrong order". This is a heuristic that fires for any
   position with |longitude| > 90 and |longitude| > 2 × |latitude|. The order is
   `[longitude, latitude]`.
-
-## 12. CCI altimeter reference
-
-The reference is the ESA CCI Sea State L2P altimeter wave height (`ESACCI-SEASTATE-L2P-SWH`), along-track
-points at about 1 per second (about 6 km apart). Recipe:
-
-```toml
-instrument = "alti"
-platform = "jason-3"
-resolution = "l2p"
-reference_root = "<folder holding data/satellite/altimeter/l2p>"
-start_date = "2020-01-01"
-stop_date = "2020-01-02"
-time_tolerance_minutes = 30
-sar_missions = ["S1A", "S1B"]
-```
-
-- **Missions.** `cryosat-2`, `jason-2`, `jason-3`, `saral`, `sentinel-3a`, `sentinel-3b` and
-  `sentinel-6a`. The recipe names `sentinel-3a`, `sentinel-3b` and `sentinel-6a` differ from the
-  public folders (`sentinel-3_a`, `sentinel-3_b`, `sentinel-6`); the adapter holds the table.
-  Other missions are not supported.
-- **Files.** The files sit under `reference_root/data/satellite/altimeter/l2p/<mission>/<year>/<day of year>/`.
-  A file belongs to the day it starts on. The tool reads the files of the requested days
-  for the one mission of the recipe. This is the layout of the public v4 server
-  (`https://data-cersat.ifremer.fr/data/ocean-waves/cci-seastate/v4/`, no login). The copy
-  on the HPC is not checked.
-- **Checks on reading.** A file must have the expected variables, units, the same platform as
-  its name and the recipe, level L2P, and a `time_coverage_start` equal to the start in its
-  name. A file with no point carrying a wave height is rejected. The recipe's source is
-  `<platform> altimeter`.
-- **Points.** Each row of the file is one point. The tool drops points with no position,
-  time or wave height, and keeps the rest with their quality level and rejection flags.
-  Nothing is filtered on quality: the old tool kept `swh_quality_level` 3 only, and about
-  16 to 21% of the points of the two files checked are level 1.
-- **Space and time.** A point matches if its position lies in the imagette footprint and its
-  time within the window. The old tool used one cell centre with a radius and kept only the
-  point closest in time; a track holds about 4 points in a footprint. The window of 30
-  minutes is a pick to move forward, not a calibrated value.
-- **Gaps.** A file can hold a jump between two points of thousands of km. These points sit
-  outside any footprint, so they are never matched.
-- **Not covered.** CMEMS wave L3 files, the HPC version of the CCI files, and any statistic
-  per imagette. The wave height statistics are computed downstream from the points.
-
-Tested: 15 tests on synthetic files, and two runs on real data:
-
-- One real Jason-3 and one real Sentinel-3A track, with a synthetic Sentinel-1 SAFE (5 of 5 and
-  3 of 3 points found, as an independent count expected).
-- Six real Sentinel-1A SAFEs of 2023-06-01 (490 imagettes) with real SARAL files. The SAFE
-  names, imagette names, times and footprints came from the Copernicus catalogue and node
-  listing, so no SAFE was downloaded. The cell centres were set to each footprint centroid.
-  The tool found 17 points in 6 imagettes, the same imagettes and point counts as an
-  independent count (3, 3, 3, 3, 3 and 2).
-
-Not tested with real Sentinel-1 measurement files, whose cell centres were not read, and not
-on the HPC copy of the CCI files.

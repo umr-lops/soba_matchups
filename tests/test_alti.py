@@ -10,7 +10,8 @@ import xarray as xr
 
 STAMP = "20260629T120500"
 FILE = f"ESACCI-SEASTATE-L2P-SWH-Jason-3-{STAMP}-fv01.nc"
-SOURCE = "Jason-3 altimeter"
+SOURCE = "CCI altimeters"
+FILE_SOURCE = "Jason-3 altimeter"
 DAY = {"start_date": date(2026, 6, 29), "stop_date": date(2026, 6, 30)}
 
 
@@ -74,7 +75,7 @@ def test_reader_keeps_every_point_with_a_wave_height_and_its_flags(tmp_path):
     assert values["swh_quality_level"].tolist() == [3, 1, 3]
     assert values["swh_rejection_flags"].tolist() == [0, 5, 0]
     assert np.isnan(values["swh"][2]) and values["swh_denoised"][2] == pytest.approx(2.2)
-    assert (ref["source"], ref["resolution"]) == (SOURCE, "1 Hz")
+    assert (ref["source"], ref["resolution"]) == (FILE_SOURCE, "1 Hz")
     assert ref["version"] == "v4.0_fv01"
     assert ref["granule_start_day"] == date(2026, 6, 29)
 
@@ -97,8 +98,7 @@ def test_reader_drops_points_without_any_wave_height_and_keeps_original_rows(tmp
         ("start", "disagree"),
         ("units", "units"),
         ("missing_variable", "variables/dimensions"),
-        ("source", "requested mission"),
-        ("all_missing", "No readable"),
+        ("source", "another product"),
     ],
 )
 def test_reader_rejects_incompatible_files(tmp_path, change, message):
@@ -115,12 +115,25 @@ def test_reader_rejects_incompatible_files(tmp_path, change, message):
     elif change == "missing_variable":
         ds = ds.drop_vars("swh_quality_level")
     elif change == "source":
-        source = "SARAL altimeter"
-    elif change == "all_missing":
-        for key in ["swh", "swh_adjusted", "swh_denoised"]:
-            ds[key].values[:] = np.nan
+        source = "Jason-3 altimeter"
     with pytest.raises(ValueError, match=message):
         read(write(tmp_path, ds), source)
+
+
+def test_reader_keeps_a_pass_without_any_wave_height_as_a_file_with_no_points(tmp_path):
+    ds = alti_dataset()
+    ds.attrs["time_coverage_end"] = "2026-06-29T12:05:04Z"
+    for key in ["swh", "swh_adjusted", "swh_denoised"]:
+        ds[key].values[:] = np.nan
+    ref = read(write(tmp_path, ds))
+    assert len(ref["flat"]) == 0 and len(ref["lon"]) == 0
+    assert ref["coverage_start"] == ref["header_start"] < ref["coverage_end"]
+    # Without a stated end the pass cannot be placed in time.
+    del ds.attrs["time_coverage_end"]
+    other = tmp_path / "b"
+    other.mkdir()
+    with pytest.raises(ValueError, match="coverage"):
+        read(write(other, ds))
 
 
 def test_reader_rejects_a_name_that_is_not_a_cci_file(tmp_path):
@@ -137,14 +150,14 @@ def test_reader_rejects_an_implausible_time_span(tmp_path):
         read(write(tmp_path, ds))
 
 
-def tree(tmp_path, files, platform="jason-3"):
+def tree(tmp_path, files, layout="l2p"):
     """Create empty files at {relative folder: [names]} under a reference root; return a recipe."""
     root = tmp_path / "cci"
     for folder, names in files.items():
-        (root / "data/satellite/altimeter/l2p" / folder).mkdir(parents=True, exist_ok=True)
+        (root / "data/satellite/altimeter" / layout / folder).mkdir(parents=True, exist_ok=True)
         for name in names:
-            (root / "data/satellite/altimeter/l2p" / folder / name).touch()
-    return SimpleNamespace(reference_root=root, platform=platform, **DAY)
+            (root / "data/satellite/altimeter" / layout / folder / name).touch()
+    return SimpleNamespace(reference_root=root, **DAY)
 
 
 def test_find_files_selects_the_mission_and_the_days(tmp_path):
@@ -171,7 +184,6 @@ def test_find_files_selects_the_mission_and_the_days(tmp_path):
     other = tree(
         tmp_path / "b",
         {"sentinel-3_a/2026/180": ["ESACCI-SEASTATE-L2P-SWH-Sentinel-3_A-20260629T030000-fv01.nc"]},
-        platform="sentinel-3a",
     )
     assert [p.name for p in find_files(other)] == [
         "ESACCI-SEASTATE-L2P-SWH-Sentinel-3_A-20260629T030000-fv01.nc"
@@ -181,21 +193,61 @@ def test_find_files_selects_the_mission_and_the_days(tmp_path):
 def test_find_files_reports_a_missing_mission_folder_and_empty_days(tmp_path):
     from soba_matchups.adapters.alti import find_files
 
-    with pytest.raises(ValueError, match="No jason-3 folder|No mission folder"):
+    with pytest.raises(ValueError, match="No CCI altimeter files"):
         find_files(tree(tmp_path, {"saral/2026/180": []}))
-    with pytest.raises(ValueError, match="No Jason-3 files starting"):
+    with pytest.raises(ValueError, match="No CCI altimeter files"):
         find_files(tree(tmp_path / "second", {"jason-3/2026/100": []}))
 
 
-def test_products_are_registered_for_every_public_mission():
+def test_find_files_reads_the_v5_layout_and_the_sentinel_6_folder_names(tmp_path):
+    from soba_matchups.adapters.alti import find_files
+
+    name = "ESACCI-SEASTATE-L2P-SWH-Jason-3-20260629T010000-fv01.nc"
+    v5 = tree(tmp_path / "v5", {"jason-3/2026/180": [name]}, layout="l2p-swh")
+    assert [p.name for p in find_files(v5)] == [name]
+    six = "ESACCI-SEASTATE-L2P-SWH-Sentinel-6_A-20260629T010000-fv01.nc"
+    for folder, layout in (("sentinel-6", "l2p"), ("sentinel-6_a", "l2p-swh")):
+        recipe = tree(tmp_path / folder, {f"{folder}/2026/180": [six]}, layout=layout)
+        assert [p.name for p in find_files(recipe)] == [six]
+
+
+def test_find_files_refuses_two_layouts_at_once(tmp_path):
+    from soba_matchups.adapters.alti import find_files
+
+    name = "ESACCI-SEASTATE-L2P-SWH-Jason-3-20260629T010000-fv01.nc"
+    tree(tmp_path, {"jason-3/2026/180": [name]}, layout="l2p")
+    both = tree(tmp_path, {"jason-3/2026/180": [name]}, layout="l2p-swh")
+    with pytest.raises(ValueError, match="Several folders"):
+        find_files(both)
+
+
+def test_one_cci_product_is_registered_and_every_mission_has_a_unique_name():
     from soba_matchups.adapters.alti import MISSIONS
     from soba_matchups.config import REFERENCE_PRODUCTS
 
-    for platform, (_, _, attribute) in MISSIONS.items():
-        source, sampling, label = REFERENCE_PRODUCTS[("alti", platform, "l2p")]
-        assert source == f"{attribute} altimeter" and sampling == "1 Hz"
-        assert label.startswith("ESACCI_SEASTATE_L2P_")
-    assert len({REFERENCE_PRODUCTS[("alti", p, "l2p")][2] for p in MISSIONS}) == len(MISSIONS)
+    assert REFERENCE_PRODUCTS[("alti", "cci", "l2p")] == (
+        "CCI altimeters",
+        "1 Hz",
+        "ESACCI_SEASTATE_L2P",
+    )
+    assert not [k for k in REFERENCE_PRODUCTS if k[0] == "alti" and k[1] != "cci"]
+    assert len({m[1] for m in MISSIONS.values()}) == len(MISSIONS)
+    assert len({m[2] for m in MISSIONS.values()}) == len(MISSIONS)
+
+
+def test_find_files_reads_all_missions_of_the_root_in_one_call(tmp_path):
+    from soba_matchups.adapters.alti import find_files
+
+    names = {
+        "jason-3/2026/180": ["ESACCI-SEASTATE-L2P-SWH-Jason-3-20260629T010000-fv01.nc"],
+        "sentinel-3_a/2026/180": ["ESACCI-SEASTATE-L2P-SWH-Sentinel-3_A-20260629T030000-fv01.nc"],
+        "saral/2026/181": ["ESACCI-SEASTATE-L2P-SWH-SARAL-20260630T030000-fv01.nc"],  # next day
+    }
+    recipe = tree(tmp_path, names)
+    assert sorted(p.name.split("-SWH-")[1][:8] for p in find_files(recipe)) == [
+        "Jason-3-",
+        "Sentinel",
+    ]
 
 
 def test_alti_end_to_end_matches_points_by_time_and_footprint(local_recipe):
@@ -214,7 +266,7 @@ def test_alti_end_to_end_matches_points_by_time_and_footprint(local_recipe):
     recipe.write_text(
         local_recipe.read_text()
         .replace('instrument = "hscat"', 'instrument = "alti"')
-        .replace('platform = "hy-2b"', 'platform = "jason-3"')
+        .replace('platform = "hy-2b"', 'platform = "cci"')
         .replace('resolution = "25km"', 'resolution = "l2p"')
         .replace('reference_root = "reference"', 'reference_root = "cci"')
         .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 30")
@@ -223,11 +275,11 @@ def test_alti_end_to_end_matches_points_by_time_and_footprint(local_recipe):
     assert main(["run", "--recipe", str(recipe)]) == 0
     result = root / "alti_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["reference_product"] == "ESACCI_SEASTATE_L2P_JASON3"
+    assert manifest["reference_product"] == "ESACCI_SEASTATE_L2P_V4"
     assert manifest["reference_versions"] == ["v4.0_fv01"]
     assert manifest["rules"]["policy"] == "alti_cci_local_ocn_imagette_v1"
     assert "swh_denoised" in manifest["units"] and "wind_speed" not in manifest["units"]
-    (item_path,) = sorted((result / "items").glob("*__IMG001__ESACCI_SEASTATE_L2P_JASON3.json"))
+    (item_path,) = sorted((result / "items").glob("*__IMG001__ESACCI_SEASTATE_L2P_V4.json"))
     props = json.loads(item_path.read_text())["properties"]
     assert props["sarmatchup:other_type"] == "altimeter"
     assert props["sarmatchup:other_instrument"] == "Jason-3 altimeter"
@@ -239,3 +291,50 @@ def test_alti_end_to_end_matches_points_by_time_and_footprint(local_recipe):
     assert flagged["swh_quality_level"] == 1 and isinstance(flagged["swh_quality_level"], int)
     assert flagged["swh_denoised"] == pytest.approx(2.2)
     assert "wind_speed" not in flagged and "swh_karin" not in flagged
+
+
+def test_one_recipe_matches_two_missions_and_names_both_in_the_item(local_recipe):
+    from soba_matchups.cli import main
+
+    root = local_recipe.parent
+    stamp = {"Jason-3": ("jason-3", "Jason-3"), "Sentinel-3_A": ("sentinel-3_a", "Sentinel-3 A")}
+    for token, (folder, platform) in stamp.items():
+        directory = root / "cci" / f"data/satellite/altimeter/l2p/{folder}/2026/180"
+        directory.mkdir(parents=True)
+        name = f"ESACCI-SEASTATE-L2P-SWH-{token}-20260629T120500-fv01.nc"
+        alti_dataset(platform=platform).to_netcdf(directory / name)
+    recipe = root / "alti2.toml"
+    recipe.write_text(
+        local_recipe.read_text()
+        .replace('instrument = "hscat"', 'instrument = "alti"')
+        .replace('platform = "hy-2b"', 'platform = "cci"')
+        .replace('resolution = "25km"', 'resolution = "l2p"')
+        .replace('reference_root = "reference"', 'reference_root = "cci"')
+        .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 30")
+        .replace('output_dir = "result"', 'output_dir = "alti2_result"')
+    )
+    assert main(["run", "--recipe", str(recipe)]) == 0
+    result = root / "alti2_result"
+    (item,) = sorted((result / "items").glob("*__IMG001__*.json"))
+    props = json.loads(item.read_text())["properties"]
+    assert props["sarmatchup:other_instrument"] == "Jason-3 altimeter + Sentinel-3 A altimeter"
+    sources = sorted(m["reference_source"] for m in props["sarmatchup:matchups"])
+    assert sources == ["Jason-3 altimeter", "Sentinel-3 A altimeter"]
+
+
+def test_product_label_carries_the_release_of_the_files():
+    from soba_matchups.adapters.alti import product_suffix
+
+    assert product_suffix([{"version": "v5.0_fv01"}, {"version": "v5.0_fv02"}]) == "_V5"
+    assert product_suffix([{"version": "v4.0_fv01"}]) == "_V4"
+
+
+@pytest.mark.parametrize(
+    "versions",
+    [["v4.0_fv01", "v5.0_fv01"], ["vunknown_fv01"], ["v5.0_fv01", "vunknown_fv01"]],
+)
+def test_product_label_refuses_mixed_or_unknown_releases(versions):
+    from soba_matchups.adapters.alti import product_suffix
+
+    with pytest.raises(ValueError, match="not a single one"):
+        product_suffix([{"version": v} for v in versions])

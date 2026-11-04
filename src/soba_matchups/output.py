@@ -91,7 +91,9 @@ def imagette_item(product, imagette, fields, groups, tolerance):
             "sarmatchup:sar_instrument_mode": "WV",
             "sarmatchup:sar_product_type": fields["producttype"],
             "sarmatchup:sar_safe": product["Name"],
-            "sarmatchup:other_instrument": groups[0]["reference_source"],
+            "sarmatchup:other_instrument": " + ".join(
+                sorted({g["reference_source"] for g in groups})
+            ),
             "sarmatchup:other_type": groups[0]["reference_type"],
             "sarmatchup:other_geometry_type": "MultiPoint",
             "sarmatchup:searching_window_hours": tolerance / 60,

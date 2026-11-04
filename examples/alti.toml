@@ -1,9 +1,9 @@
 instrument = "alti"
-platform = "jason-3"  # also cryosat-2, jason-2, saral, sentinel-3a, sentinel-3b, sentinel-6a
+platform = "cci"  # every mission found under reference_root
 resolution = "l2p"
 
-# The folder that holds data/satellite/altimeter/l2p/<mission>/<year>/<day of year>/ of the
-# ESA CCI Sea State v4 files (public: https://data-cersat.ifremer.fr/data/ocean-waves/cci-seastate/v4/).
+# The folder that holds data/satellite/altimeter/l2p/<mission>/<year>/<day of year>/ (public v4:
+# https://data-cersat.ifremer.fr/data/ocean-waves/cci-seastate/v4/) or the same under l2p-swh (v5).
 reference_root = "/path/to/cci-seastate/v4"
 start_date = "2020-01-01"
 stop_date = "2020-01-02"  # Exclusive; selects the days the altimeter files start on.

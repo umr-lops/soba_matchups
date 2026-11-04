@@ -53,6 +53,10 @@ def run(recipe):
         )
     adapter = ADAPTERS[recipe.instrument]
     refs = reference_inputs(recipe)
+    # The label of the reference product, used in the Item file names. An adapter can add the
+    # release of its files (CCI: "_V5"); this fails before any matching if they mix releases.
+    label = REFERENCE_PRODUCTS[(recipe.instrument, recipe.platform, recipe.resolution)][2]
+    label += getattr(adapter, "product_suffix", lambda refs: "")(refs)
     delta = timedelta(minutes=recipe.time_tolerance_minutes)
     precision = timedelta(seconds=OCN_HEADER_PRECISION_SECONDS)
 
@@ -185,10 +189,7 @@ def run(recipe):
             for ref in refs
         ],
         "reference_files": len(refs),
-        # The label of the reference product, used in the Item file names.
-        "reference_product": REFERENCE_PRODUCTS[
-            (recipe.instrument, recipe.platform, recipe.resolution)
-        ][2],
+        "reference_product": label,
         # Versions are recorded, not enforced; this lists every one used in the run.
         "reference_versions": sorted({ref["version"] for ref in refs}),
         "reference_cells": sum(len(ref["flat"]) for ref in refs),

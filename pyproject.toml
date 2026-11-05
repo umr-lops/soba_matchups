@@ -11,7 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = ["numpy>=1.26,<3", "xarray>=2024.1", "shapely>=2",
-                "netCDF4>=1.7,<2"]
+                "netCDF4>=1.7,<2", "pyarrow>=15"]
 
 [project.scripts]
 soba_matchups = "soba_matchups.cli:main"

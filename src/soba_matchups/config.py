@@ -43,6 +43,7 @@ class Recipe:
     instrument: str
     platform: str
     resolution: str
+    sar_parquet_root: Path | None = None
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -57,8 +58,8 @@ def load_recipe(path):
     with path.open("rb") as stream:
         data = tomllib.load(stream)
     # Reject unknown keys and missing required keys.
-    required = set(Recipe.__dataclass_fields__) - {"path"}
-    unknown = set(data) - required
+    required = set(Recipe.__dataclass_fields__) - {"path", "sar_parquet_root"}
+    unknown = set(data) - required - {"sar_parquet_root"}
     if unknown or required - set(data):
         raise ValueError(
             f"Unknown recipe keys: {sorted(unknown)}; missing keys: {sorted(required - set(data))}"
@@ -99,12 +100,17 @@ def load_recipe(path):
     ):
         raise ValueError("sar_missions must contain distinct supported Sentinel-1 missions")
     # Make every path absolute, relative to the recipe file.
-    for key in ["reference_root", "sar_archive_root", "output_dir"]:
+    paths = ["reference_root", "sar_archive_root", "output_dir"]
+    inputs = ["reference_root", "sar_archive_root"]
+    if "sar_parquet_root" in data:
+        paths.append("sar_parquet_root")
+        inputs.append("sar_parquet_root")
+    for key in paths:
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
         data[key] = (path.parent / data[key]).resolve()
     # Inputs must exist, and results must never be written inside them.
-    for key in ["reference_root", "sar_archive_root"]:
+    for key in inputs:
         if not data[key].is_dir():
             raise ValueError(f"{key} directory does not exist: {data[key]}")
         if data["output_dir"].is_relative_to(data[key]):

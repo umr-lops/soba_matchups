@@ -141,10 +141,10 @@ def _product(row, archive_root):
     if numbers != list(range(1, len(numbers) + 1)):
         raise ValueError("Imagette numbers are not 1..N")
     product_id = "local_" + hashlib.sha256(name.encode()).hexdigest()
-    folder = _safe_folder(archive_root, name)
+    folder = _safe_folder(archive_root, name) if archive_root is not None else None
     present = (
         {p.name for p in (folder / "measurement").iterdir()}
-        if (folder / "measurement").is_dir()
+        if folder is not None and (folder / "measurement").is_dir()
         else None
     )
     imagettes, unavailable = [], []
@@ -161,8 +161,11 @@ def _product(row, archive_root):
                 "ContentDate": item["ContentDate"],
                 "GeoFootprint": _geometry(member),
                 "Centre": centre(member),
-                "href": (folder / relative).as_uri(),
-                "available": present is not None and item["Name"] in present,
+                # With no archive the file is not looked for: the link is the path inside the SAFE.
+                "href": (folder / relative).as_uri()
+                if folder is not None
+                else f"{name}/{relative}",
+                "available": folder is None or (present is not None and item["Name"] in present),
             }
         )
         if not imagettes[-1]["available"]:
@@ -181,7 +184,11 @@ def _product(row, archive_root):
 
 
 def discover_parquet(
-    start: str, end: str, missions: tuple[str, ...], parquet_root: Path, sar_archive_root: Path
+    start: str,
+    end: str,
+    missions: tuple[str, ...],
+    parquet_root: Path,
+    sar_archive_root: Path | None = None,
 ) -> tuple[list[dict], dict]:
     """Read the daily parquet files of the covered days and return the WV OCN products to match.
 
@@ -200,7 +207,7 @@ def discover_parquet(
         "coverage": {"start": start, "end": end},
         "missions": sorted(set(missions)),
         "sar_parquet_root": str(parquet_root),
-        "sar_archive_root": str(sar_archive_root),
+        "sar_archive_root": None if sar_archive_root is None else str(sar_archive_root),
         "coverage_scope": "products listed in the selected daily parquet files",
         "safes_without_imagettes": [],
         "safes_skipped": [],

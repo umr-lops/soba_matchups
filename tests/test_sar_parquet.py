@@ -226,3 +226,48 @@ def test_full_run_from_the_parquet_gives_the_same_matches_as_the_local_archive(l
         b = json.loads((root / "result/items" / name).read_text())
         assert a["id"] == b["id"]  # the same Item ids in both sources
         assert point_ids(a) == point_ids(b)
+
+
+def test_without_an_archive_every_imagette_counts_as_available(tmp_path):
+    day = find(ORDINARY)[0]
+    write_day(tmp_path / "parquet", day, [WEST_FIRST, ORDINARY])
+    products, prov = sp.discover_parquet(
+        f"{day}T00:00:00Z", f"{day}T23:59:59Z", ALL_MISSIONS, tmp_path / "parquet"
+    )
+    assert {p["Name"] for p in products} == {WEST_FIRST["Name"], ORDINARY["Name"]}
+    assert prov["imagettes_unavailable"] == [] and prov["sar_archive_root"] is None
+    assert all(i["available"] for p in products for i in p["Imagettes"])
+
+
+def test_a_run_with_only_the_parquet_folder_matches_the_run_with_both(local_recipe):
+    from soba_matchups.cli import main
+
+    parquet = synthetic_parquet(local_recipe)
+    root = local_recipe.parent
+    both = root / "both.toml"
+    both.write_text(
+        local_recipe.read_text().replace('output_dir = "result"', 'output_dir = "both"')
+        + f'sar_parquet_root = "{parquet}"\n'
+    )
+    only = root / "only.toml"
+    only.write_text(
+        "\n".join(
+            line
+            for line in both.read_text()
+            .replace('output_dir = "both"', 'output_dir = "only"')
+            .splitlines()
+            if not line.startswith("sar_archive_root")
+        )
+        + "\n"
+    )
+    assert main(["run", "--recipe", str(both)]) == 0
+    assert main(["run", "--recipe", str(only)]) == 0
+    a = json.loads((root / "both/manifest.json").read_text())
+    b = json.loads((root / "only/manifest.json").read_text())
+    assert a["stac_items"] == b["stac_items"] == 2
+    assert a["matchup_imagette_cell_rows"] == b["matchup_imagette_cell_rows"] == 8
+    assert b["imagettes_unavailable"] == 0 and b["discovery"]["sar_archive_root"] is None
+    for item in sorted((root / "both/items").glob("*.json")):
+        x = json.loads(item.read_text())
+        y = json.loads((root / "only/items" / item.name).read_text())
+        assert x["id"] == y["id"] and point_ids(x) == point_ids(y)

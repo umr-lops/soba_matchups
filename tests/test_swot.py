@@ -2,6 +2,7 @@
 
 from datetime import date
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -312,3 +313,113 @@ def test_swot_end_to_end_matches_cells_by_line_time_and_footprint(local_recipe):
     assert "wind_direction_to" not in first and "wind_speed" not in first
     flagged = next(p for p in points if p["ref_row_0based"] == 1)
     assert flagged["swh_karin_qual"] == 4 and isinstance(flagged["swh_karin_qual"], int)
+
+
+EMPTY = "SWOT_L2_LR_SSH_WindWave_044_109_20260629T130000_20260629T130000_PID0_01.nc"
+CORRUPT = "SWOT_L2_LR_SSH_WindWave_044_110_20260629T131000_20260629T132000_PID0_01.nc"
+
+
+def swot_recipe_with_files(local_recipe, empty=True, corrupt=True, good=True):
+    """Write a SWOT recipe over a good pass and, if asked, an empty and a corrupt file."""
+    root = local_recipe.parent
+    folder = root / "swot" / "PID0"
+    folder.mkdir(parents=True)
+    if good:
+        ds = swot_dataset(lines=3)
+        ds["time"].values[2] = ds["time"].values[0] + 1800
+        ds.to_netcdf(folder / PASS)
+    if empty:
+        ds = swot_dataset(pass_number=109)
+        for name in ["swh_karin", "wind_speed_karin", "wind_speed_karin_2"]:
+            ds[name].values[:] = 65535
+        ds.to_netcdf(folder / EMPTY)
+    if corrupt:
+        (folder / CORRUPT).write_bytes(b"not a netcdf file")
+    recipe = root / "swot.toml"
+    recipe.write_text(
+        local_recipe.read_text()
+        .replace('instrument = "hscat"', 'instrument = "karin"')
+        .replace('platform = "hy-2b"', 'platform = "swot"')
+        .replace('resolution = "25km"', 'resolution = "2km"')
+        .replace('reference_root = "reference"', 'reference_root = "swot"')
+        .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 60")
+        .replace('output_dir = "result"', 'output_dir = "swot_result"')
+    )
+    return recipe
+
+
+def test_reader_marks_empty_and_unreadable_files_skippable(tmp_path):
+    """An all-fill file and a file that is not NetCDF can be skipped; both stay ValueErrors."""
+    from soba_matchups.adapters import SkippableReference
+
+    ds = swot_dataset()
+    for name in ["swh_karin", "wind_speed_karin", "wind_speed_karin_2"]:
+        ds[name].values[:] = 65535
+    with pytest.raises(SkippableReference, match="No readable"):
+        read(write(tmp_path, ds))
+    with pytest.raises(SkippableReference, match="Unreadable SWOT file"):
+        read(write_bytes(tmp_path, b"not a netcdf file", CORRUPT))
+
+
+def write_bytes(tmp_path, data, name):
+    """Write raw bytes under the file name and return the path."""
+    path = tmp_path / name
+    path.write_bytes(data)
+    return path
+
+
+def test_reader_does_not_skip_a_file_that_is_wrong(tmp_path):
+    """A readable file with the wrong units or pass keeps stopping the run."""
+    from soba_matchups.adapters import SkippableReference
+
+    ds = swot_dataset()
+    ds["swh_karin"].attrs["units"] = "cm"
+    with pytest.raises(ValueError, match="units") as caught:
+        read(write(tmp_path, ds))
+    assert not isinstance(caught.value, SkippableReference)
+
+
+def test_run_skips_empty_and_unreadable_files_and_lists_them(local_recipe):
+    """The good pass is matched; the two bad files are named with their hash and reason."""
+    from soba_matchups.cli import main
+
+    recipe = swot_recipe_with_files(local_recipe)
+    assert main(["run", "--recipe", str(recipe)]) == 0
+    manifest = json.loads((local_recipe.parent / "swot_result" / "manifest.json").read_text())
+    assert manifest["reference_files"] == 1
+    skipped = {Path(e["path"]).name: e for e in manifest["reference_files_skipped"]}
+    assert set(skipped) == {EMPTY, CORRUPT}
+    assert "No readable SWOT cells" in skipped[EMPTY]["reason"]
+    assert "Unreadable SWOT file" in skipped[CORRUPT]["reason"]
+    assert all(len(e["sha256"]) == 64 for e in skipped.values())
+    assert [r["file"] for r in manifest["reference_coverage"]] == [PASS]
+    assert manifest["stac_items"] > 0
+
+
+def test_run_without_skipped_files_lists_none(local_recipe):
+    """A clean folder gives an empty list, not a missing key."""
+    from soba_matchups.cli import main
+
+    recipe = swot_recipe_with_files(local_recipe, empty=False, corrupt=False)
+    assert main(["run", "--recipe", str(recipe)]) == 0
+    manifest = json.loads((local_recipe.parent / "swot_result" / "manifest.json").read_text())
+    assert manifest["reference_files_skipped"] == []
+
+
+def test_run_fails_when_every_file_is_skipped(local_recipe, capsys):
+    """With nothing readable left there is nothing to match, so the run is refused."""
+    from soba_matchups.cli import main
+
+    recipe = swot_recipe_with_files(local_recipe, good=False)
+    assert main(["run", "--recipe", str(recipe)]) == 2
+    assert "No usable reference file" in capsys.readouterr().err
+
+
+def test_validate_reports_the_skipped_count(local_recipe, capsys):
+    """validate runs the same reading and prints how many files it would skip."""
+    from soba_matchups.cli import main
+
+    recipe = swot_recipe_with_files(local_recipe)
+    assert main(["validate", "--recipe", str(recipe)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["reference_files"] == 1 and out["reference_files_skipped"] == 2

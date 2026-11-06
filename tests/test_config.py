@@ -85,3 +85,33 @@ def test_invalid_knmi_selection(local_recipe, old, new):
     local_recipe.write_text(local_recipe.read_text().replace(old, new))
     with pytest.raises(ValueError, match="supported|reference_version"):
         load_recipe(local_recipe)
+
+
+def test_a_recipe_needs_the_archive_the_parquet_folder_or_both(tmp_path):
+    from soba_matchups.config import load_recipe
+
+    for name in ("reference", "esa", "parquet"):
+        (tmp_path / name).mkdir()
+    base = """instrument = "hscat"
+platform = "hy-2b"
+resolution = "25km"
+reference_root = "reference"
+start_date = "2020-01-10"
+stop_date = "2020-01-11"
+sar_missions = ["S1A"]
+time_tolerance_minutes = 60
+output_dir = "run"
+"""
+    recipe = tmp_path / "r.toml"
+    recipe.write_text(base)
+    with pytest.raises(ValueError, match="sar_archive_root, sar_parquet_root, or both"):
+        load_recipe(recipe)
+    recipe.write_text(base + 'sar_archive_root = "esa"\n')
+    config = load_recipe(recipe)
+    assert config.sar_archive_root == tmp_path / "esa" and config.sar_parquet_root is None
+    recipe.write_text(base + 'sar_parquet_root = "parquet"\n')
+    config = load_recipe(recipe)
+    assert config.sar_archive_root is None and config.sar_parquet_root == tmp_path / "parquet"
+    recipe.write_text(base + 'sar_archive_root = "esa"\nsar_parquet_root = "parquet"\n')
+    config = load_recipe(recipe)
+    assert config.sar_archive_root and config.sar_parquet_root

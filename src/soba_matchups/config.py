@@ -38,11 +38,12 @@ class Recipe:
     stop_date: date
     sar_missions: tuple[str, ...]
     time_tolerance_minutes: float
-    sar_archive_root: Path
     output_dir: Path
     instrument: str
     platform: str
     resolution: str
+    sar_archive_root: Path | None = None
+    sar_parquet_root: Path | None = None
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -57,12 +58,16 @@ def load_recipe(path):
     with path.open("rb") as stream:
         data = tomllib.load(stream)
     # Reject unknown keys and missing required keys.
-    required = set(Recipe.__dataclass_fields__) - {"path"}
-    unknown = set(data) - required
+    optional = {"sar_archive_root", "sar_parquet_root"}
+    required = set(Recipe.__dataclass_fields__) - {"path"} - optional
+    unknown = set(data) - required - optional
     if unknown or required - set(data):
         raise ValueError(
             f"Unknown recipe keys: {sorted(unknown)}; missing keys: {sorted(required - set(data))}"
         )
+    # The SAR metadata comes from the archive, the daily parquet files, or both.
+    if not optional & set(data):
+        raise ValueError("Recipe needs sar_archive_root, sar_parquet_root, or both")
     product = (data["instrument"], data["platform"], data["resolution"])
     if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
         raise ValueError("Unsupported reference instrument / platform / resolution combination")
@@ -99,12 +104,17 @@ def load_recipe(path):
     ):
         raise ValueError("sar_missions must contain distinct supported Sentinel-1 missions")
     # Make every path absolute, relative to the recipe file.
-    for key in ["reference_root", "sar_archive_root", "output_dir"]:
+    paths = ["reference_root", "output_dir"]
+    inputs = ["reference_root"]
+    for key in sorted(optional & set(data)):
+        paths.append(key)
+        inputs.append(key)
+    for key in paths:
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
         data[key] = (path.parent / data[key]).resolve()
     # Inputs must exist, and results must never be written inside them.
-    for key in ["reference_root", "sar_archive_root"]:
+    for key in inputs:
         if not data[key].is_dir():
             raise ValueError(f"{key} directory does not exist: {data[key]}")
         if data["output_dir"].is_relative_to(data[key]):

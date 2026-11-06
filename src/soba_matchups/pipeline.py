@@ -10,6 +10,12 @@ from soba_matchups import __version__
 from soba_matchups.adapters import alti, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.output import file_identity, imagette_item, publish
+from soba_matchups.sar_parquet import (
+    IMAGETTE_MAPPING,
+    TIME_SOURCE,
+    discover_parquet,
+    verify_parquet_inputs,
+)
 from soba_matchups.sar_metadata import (
     OCN_HEADER_PRECISION_SECONDS,
     decode_safe_name,
@@ -17,6 +23,22 @@ from soba_matchups.sar_metadata import (
     verify_local_inputs,
 )
 
+
+# What each SAR source can and cannot do, copied into the manifest of every run.
+ARCHIVE_LIMITATIONS = [
+    "Requires extracted L2 OCN SAFEs with manifest.safe and every listed measurement file.",
+    "Missing/ambiguous native frame associations fail without suffix fallback.",
+    "Reads OSW geolocation and UTC attributes, not wind/spectral arrays; no network.",
+    "Archive inventory only; missing mission/day directories are listed in discovery.",
+    "SAR file identities use size/mtime; manifests and references use SHA256.",
+]
+PARQUET_LIMITATIONS = [
+    "SAR metadata comes from the daily parquet files; no SAFE is opened, nothing is fetched.",
+    "Imagette centres are polygon centroids; polygon k is paired with imagette number k.",
+    "SAFEs with no imagette list, or with polygons and imagettes that disagree, are left out.",
+    "Imagettes whose file is not in the archive are matched and listed as unavailable.",
+    "Parquet files and references use SHA256.",
+]
 
 # One adapter per instrument: it finds the files, reads them and names the point fields.
 ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot, "alti": alti}
@@ -75,7 +97,17 @@ def run(recipe):
     # Search window: reference coverage widened by the time tolerance and header rounding.
     start = iso(min(ref["coverage_start"] for ref in refs) - delta - precision)
     end = iso(max(ref["coverage_end"] for ref in refs) + delta + precision)
-    products, discovery = discover_local(start, end, recipe.sar_missions, recipe.sar_archive_root)
+    from_parquet = recipe.sar_parquet_root is not None
+    if from_parquet:
+        products, discovery = discover_parquet(
+            start, end, recipe.sar_missions, recipe.sar_parquet_root, recipe.sar_archive_root
+        )
+        verify_inputs = verify_parquet_inputs
+    else:
+        products, discovery = discover_local(
+            start, end, recipe.sar_missions, recipe.sar_archive_root
+        )
+        verify_inputs = verify_local_inputs
     items, diagnostics = [], []
     seen_points = set()
     imagettes_processed = duplicate_points = safes_without_candidates = 0
@@ -189,7 +221,7 @@ def run(recipe):
                     imagette_item(product, imagette, fields, groups, recipe.time_tolerance_minutes)
                 )
     # Confirm no input changed while matching, before anything is published.
-    verify_local_inputs(discovery)
+    verify_inputs(discovery)
     for ref in refs:
         if file_identity(ref["path"]) != ref["identity"]:
             raise ValueError(f"Input changed during processing: {ref['path']}")
@@ -227,6 +259,9 @@ def run(recipe):
         "safe_candidate_cell_rows": candidate_cells,
         "imagettes_processed": imagettes_processed,
         "imagettes_skipped": sum(len(p["SkippedImagettes"]) for p in products),
+        "safes_without_imagettes": len(discovery.get("safes_without_imagettes", [])),
+        "safes_skipped": len(discovery.get("safes_skipped", [])),
+        "imagettes_unavailable": len(discovery.get("imagettes_unavailable", [])),
         "stac_items": len(items),
         "matchup_imagette_cell_rows": len(seen_points),
         "duplicate_associations_discarded": duplicate_points,
@@ -235,12 +270,18 @@ def run(recipe):
         "source_code": [file_identity(p) for p in sorted(Path(__file__).parent.rglob("*.py"))],
         "rules": {
             "policy": adapter.POLICY,
-            "imagette_mapping": "local_ocn_geolocation_to_manifest_frame",
+            "imagette_mapping": (
+                IMAGETTE_MAPPING if from_parquet else "local_ocn_geolocation_to_manifest_frame"
+            ),
             "space": getattr(
                 adapter, "SPACE", "strict individual imagette footprint point containment"
             ),
             "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
-            "time_source": "OCN firstMeasurementTime / lastMeasurementTime UTC attributes",
+            "time_source": (
+                TIME_SOURCE
+                if from_parquet
+                else "OCN firstMeasurementTime / lastMeasurementTime UTC attributes"
+            ),
             "candidate_padding_seconds": OCN_HEADER_PRECISION_SECONDS,
             "header_precision": "whole-second NC headers use outward-rounded manifest bounds",
             "time_tolerance_minutes": recipe.time_tolerance_minutes,
@@ -252,11 +293,7 @@ def run(recipe):
             "ref_lat": "degrees_north",
         },
         "limitations": [
-            "Requires extracted L2 OCN SAFEs with manifest.safe and all listed measurement files.",
-            "Missing/ambiguous native frame associations fail without suffix fallback.",
-            "Reads OSW geolocation and UTC attributes, not wind/spectral arrays; no network.",
-            "Archive inventory only; missing mission/day directories are listed in discovery.",
-            "SAR file identities use size/mtime; manifests and references use SHA256.",
+            *(PARQUET_LIMITATIONS if from_parquet else ARCHIVE_LIMITATIONS),
             "sarmatchup:* properties are project-specific, not a registered STAC extension.",
             "No sea-percent, polar, quality or ice filter.",
             "Tolerance is explicitly configured, not scientifically calibrated.",

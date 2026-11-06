@@ -33,6 +33,16 @@ with corresponding mission paths for S1B/C/D. Each extracted SAFE needs its
 ``stop_date`` is exclusive. ``output_dir`` must be new. Replace the previous
 ``sar_cache_dir`` / ``offline`` keys with ``sar_archive_root``.
 
+To read the SAR metadata from the CDSE daily parquet files instead of opening the SAFEs,
+set ``sar_parquet_root`` in the recipe: the folder of the ``s1_YYYY-MM-DD.parquet`` files, which
+need the ``WVImagettes`` column. The footprint polygons give the imagette footprints and
+centres. A recipe needs ``sar_archive_root``, ``sar_parquet_root``, or both. With the archive
+alone the SAFEs are opened. With the parquet folder alone nothing is opened and every
+imagette counts as available. With both, the metadata comes from the parquet files and the
+archive is used only to check which imagette files exist. The manifest lists the SAFEs left
+out (no imagette list, or polygons and imagettes that disagree) and the imagettes whose file is
+not in the archive, under ``discovery``.
+
 Reference products
 ------------------
 

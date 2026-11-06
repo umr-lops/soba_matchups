@@ -6,9 +6,10 @@ STAC 1.0.0 Items and three run files.
 
 ## 1. Product types and collections
 
-The tool reads **Sentinel-1 WV Level-2 OCN products only (No support for SLC and no migration to Daily files yet)**. Discovery rejects any other
+The tool reads **Sentinel-1 WV Level-2 OCN products only (No support for SLC)**. Discovery rejects any other
 product type.
 
+You can also use the **sar_parquet_root** flag in recipes to specify the path for the daily parquets if you want to use only the SAR metadata for matchups.
 
 One collection per product type:
 

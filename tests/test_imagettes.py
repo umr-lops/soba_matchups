@@ -3,8 +3,9 @@
 import os
 
 import netCDF4
+import numpy as np
 import pytest
-from shapely.geometry import Point, shape
+from shapely.geometry import Point, box, mapping, shape
 
 from soba_matchups import sar_metadata as sar
 from test_sar_metadata import START, END, NAME, archive
@@ -184,3 +185,103 @@ def test_unlisted_nc_is_not_silently_ignored(tmp_path):
     (safe / "measurement" / "unlisted.nc").write_bytes(b"incomplete archive")
     with pytest.raises(ValueError, match="unlisted|Unlisted"):
         sar.discover_local(START, END, ("S1C",), tmp_path)
+
+
+def add_wind_grid(path, lon, lat):
+    """Give one imagette file a small wind grid centred on (lon, lat), as real OCN files have."""
+    with netCDF4.Dataset(path, "a") as ds:
+        ds.createDimension("az", 3)
+        ds.createDimension("ra", 3)
+        grid_lon = ds.createVariable("owiLon", "f8", ("az", "ra"))
+        grid_lat = ds.createVariable("owiLat", "f8", ("az", "ra"))
+        offsets = [-0.1, 0.0, 0.1]
+        grid_lon[:] = [[lon + dx for dx in offsets] for _ in offsets]
+        grid_lat[:] = [[lat + dy] * 3 for dy in offsets]
+
+
+def test_osw_centre_in_no_frame_takes_the_wind_grid_centre(tmp_path, caplog):
+    # File 001 belongs to frame 1 (lon 3..4) but its OSW point is in no frame; file 002 is fine.
+    safe, names = archive(tmp_path, centres=((2.0, 5.0), (0.5, 0.5)))
+    add_wind_grid(safe / "measurement" / names[0], 3.5, 0.5)
+    with caplog.at_level("WARNING", logger="soba_matchups.sar_metadata"):
+        products, provenance = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert product["SkippedImagettes"] == []
+    first = next(row for row in product["Imagettes"] if row["index"] == 1)
+    assert first["Centre"] == pytest.approx([3.5, 0.5])
+    assert shape(first["GeoFootprint"]).covers(Point(3.5, 0.5))
+    assert first["CentreRepair"]["osw_centre"] == [2.0, 5.0]
+    assert first["CentreRepair"]["offset_km"] > 100
+    other = next(row for row in product["Imagettes"] if row["index"] == 2)
+    assert "CentreRepair" not in other
+    assert provenance["imagettes_centre_repaired"] == [
+        {
+            "safe": NAME,
+            "index": 1,
+            "name": names[0],
+            "osw_offset_km": first["CentreRepair"]["offset_km"],
+        }
+    ]
+    assert "taken from the wind grid" in caplog.text
+    sar.verify_local_inputs(provenance)
+
+
+def test_osw_centre_in_no_frame_and_no_wind_grid_skips_the_file(tmp_path):
+    safe, names = archive(tmp_path, centres=((2.0, 5.0), (0.5, 0.5)))
+    products, provenance = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert [row["index"] for row in product["Imagettes"]] == [2]
+    (skipped,) = product["SkippedImagettes"]
+    assert skipped["index"] == 1 and "no frame" in skipped["reason"]
+    assert provenance["imagettes_centre_repaired"] == []
+
+
+def test_wind_grid_in_another_frame_is_not_trusted(tmp_path):
+    # The grid of file 001 lies in frame 2, not in the frame of its own number.
+    safe, names = archive(tmp_path, centres=((2.0, 5.0), (0.5, 0.5)))
+    add_wind_grid(safe / "measurement" / names[0], 0.5, 0.5)
+    products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert [row["index"] for row in product["Imagettes"]] == [2]
+    assert [row["index"] for row in product["SkippedImagettes"]] == [1]
+
+
+def test_repaired_file_wins_a_clash_over_a_file_that_copies_its_frame(tmp_path):
+    # Files 001 and 002 both end up in frame 1; file 001 is the one numbered like it.
+    safe, names = archive(tmp_path, centres=((2.0, 5.0), (3.5, 0.5)))
+    add_wind_grid(safe / "measurement" / names[0], 3.5, 0.5)
+    products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    assert [row["Name"] for row in product["Imagettes"]] == [names[0]]
+    assert [row["Name"] for row in product["SkippedImagettes"]] == [names[1]]
+
+
+def test_wind_grid_across_the_dateline_gives_a_centre_in_range(tmp_path):
+    # Frame 1 is split at 180. The wind grid has columns on both sides (179.9, 180.0, -179.9).
+    safe, names = archive(
+        tmp_path,
+        frames=("0,179 0,-179 1,-179 1,179", "0,3 0,4 1,4 1,3"),
+        centres=((100.0, 50.0), (3.5, 0.5)),
+    )
+    with netCDF4.Dataset(safe / "measurement" / names[0], "a") as ds:
+        ds.createDimension("az", 2)
+        ds.createDimension("ra", 3)
+        ds.createVariable("owiLon", "f8", ("az", "ra"))[:] = [[179.9, 180.0, -179.9]] * 2
+        ds.createVariable("owiLat", "f8", ("az", "ra"))[:] = [[0.4] * 3, [0.6] * 3]
+    products, _ = sar.discover_local(START, END, ("S1C",), tmp_path)
+    (product,) = products
+    first = next(row for row in product["Imagettes"] if row["index"] == 1)
+    # Averaged on 0..360 the columns give 180, which is written as -180, not as the plain mean 60.
+    assert abs(first["Centre"][0]) == pytest.approx(180)
+    assert first["Centre"][1] == pytest.approx(0.5)
+    assert product["SkippedImagettes"] == []
+
+
+def test_wind_grid_helper_refuses_missing_or_mismatched_input():
+    frames = [mapping(box(0, 0, 1, 1))]
+    good = (np.array([[0.4, 0.6]]), np.array([[0.5, 0.5]]))
+    assert sar._wind_grid_centre(good, 1, frames) == pytest.approx((0.5, 0.5))
+    assert sar._wind_grid_centre(None, 1, frames) is None
+    assert sar._wind_grid_centre(good, 2, frames) is None
+    assert sar._wind_grid_centre((good[0], np.array([[0.5]])), 1, frames) is None
+    assert sar._wind_grid_centre((np.full((1, 2), np.nan), good[1]), 1, frames) is None

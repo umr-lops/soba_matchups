@@ -8,6 +8,8 @@ import re
 import numpy as np
 import xarray as xr
 
+from soba_matchups.adapters import SkippableReference
+
 POLICY = "swot_local_ocn_imagette_v1"
 TYPE = "altimeter"
 RETENTION = (
@@ -90,6 +92,18 @@ def find_files(recipe):
 
 
 def read_reference(path, *, expected_source, expected_resolution):
+    """Load one SWOT file (see _read_reference); a file that cannot be read is skippable."""
+    try:
+        return _read_reference(
+            path, expected_source=expected_source, expected_resolution=expected_resolution
+        )
+    except (FileNotFoundError, PermissionError):
+        raise
+    except OSError as exc:
+        raise SkippableReference(f"Unreadable SWOT file {path}: {exc}") from exc
+
+
+def _read_reference(path, *, expected_source, expected_resolution):
     """Load one SWOT file: keep the position and time of every cell that carries a measurement.
 
     The file has no source or resolution attribute, so both come from the recipe's product. Cells
@@ -141,7 +155,7 @@ def read_reference(path, *, expected_source, expected_resolution):
         & measured
     )
     if not valid.any():
-        raise ValueError(f"No readable SWOT cells in {path}")
+        raise SkippableReference(f"No readable SWOT cells in {path}")
     header_start, header_end = _clock(match["start"]), _clock(match["end"])
     if header_start > header_end:
         raise ValueError(f"Reversed reference coverage in {path}")

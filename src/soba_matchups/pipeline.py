@@ -2,12 +2,13 @@
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import logging
 from pathlib import Path
 
 import numpy as np
 
 from soba_matchups import __version__
-from soba_matchups.adapters import alti, scat, swot
+from soba_matchups.adapters import SkippableReference, alti, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_parquet import (
@@ -42,12 +43,18 @@ PARQUET_LIMITATIONS = [
     "Parquet files and references use SHA256.",
 ]
 
+logger = logging.getLogger(__name__)
+
 # One adapter per instrument: it finds the files, reads them and names the point fields.
 ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot, "alti": alti}
 
 
-def reference_inputs(recipe):
-    """Read and validate every reference granule for the requested days (stop_date exclusive)."""
+def reference_inputs(recipe, skipped=None):
+    """Read and validate every reference granule for the requested days (stop_date exclusive).
+
+    A granule the adapter calls skippable (empty or unreadable) is left out and appended to
+    the list "skipped" as its identity plus the reason, if a list is given.
+    """
     adapter = ADAPTERS[recipe.instrument]
     paths = adapter.find_files(recipe)
     if len({p.name for p in paths}) != len(paths):
@@ -58,11 +65,23 @@ def reference_inputs(recipe):
         identity = file_identity(path)
         product = (recipe.instrument, recipe.platform, recipe.resolution)
         source, resolution, _ = REFERENCE_PRODUCTS[product]
-        ref = adapter.read_reference(path, expected_source=source, expected_resolution=resolution)
+        try:
+            ref = adapter.read_reference(
+                path, expected_source=source, expected_resolution=resolution
+            )
+        except SkippableReference as exc:
+            if skipped is None:
+                raise
+            skipped.append({**identity, "reason": str(exc)})
+            continue
         if not recipe.start_date <= ref["granule_start_day"] < recipe.stop_date:
             raise ValueError(f"Granule start day outside requested range: {path}")
         ref["identity"] = identity
         references.append(ref)
+    if not references:
+        raise ValueError(
+            f"No usable reference file for the requested days under {recipe.reference_root}"
+        )
     return references
 
 
@@ -76,7 +95,10 @@ def run(recipe):
             f"Output already exists; choose a fresh directory: {recipe.output_dir}"
         )
     adapter = ADAPTERS[recipe.instrument]
-    refs = reference_inputs(recipe)
+    skipped_references = []
+    refs = reference_inputs(recipe, skipped_references)
+    for entry in skipped_references:
+        logger.warning("Reference file skipped: %s", entry["reason"])
     # The label of the reference product, used in the Item file names. An adapter can add the
     # release of its files (CCI: "_V5"); this fails before any matching if they mix releases.
     label = REFERENCE_PRODUCTS[(recipe.instrument, recipe.platform, recipe.resolution)][2]
@@ -252,6 +274,7 @@ def run(recipe):
             for ref in refs
         ],
         "reference_files": len(refs),
+        "reference_files_skipped": skipped_references,
         "reference_product": label,
         # Versions are recorded, not enforced; this lists every one used in the run.
         "reference_versions": sorted({ref["version"] for ref in refs}),

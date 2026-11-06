@@ -23,12 +23,14 @@ def main(argv=None):
     try:
         recipe = load_recipe(args.recipe)
         if args.command == "validate":
-            refs = reference_inputs(recipe)
+            skipped = []
+            refs = reference_inputs(recipe, skipped)
             print(
                 json.dumps(
                     {
                         "status": "valid",
                         "reference_files": len(refs),
+                        "reference_files_skipped": len(skipped),
                         "resolved_recipe": recipe.resolved(),
                     },
                     indent=2,

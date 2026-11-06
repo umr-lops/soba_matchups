@@ -27,7 +27,9 @@ from soba_matchups.sar_metadata import (
 # What each SAR source can and cannot do, copied into the manifest of every run.
 ARCHIVE_LIMITATIONS = [
     "Requires extracted L2 OCN SAFEs with manifest.safe and every listed measurement file.",
-    "Missing/ambiguous native frame associations fail without suffix fallback.",
+    "Ambiguous native frame associations fail without suffix fallback.",
+    "An OSW centre in no frame is replaced by the wind-grid mean when that lies in the frame of"
+    " the file's number; otherwise the file is skipped and listed.",
     "Reads OSW geolocation and UTC attributes, not wind/spectral arrays; no network.",
     "Archive inventory only; missing mission/day directories are listed in discovery.",
     "SAR file identities use size/mtime; manifests and references use SHA256.",
@@ -259,6 +261,7 @@ def run(recipe):
         "safe_candidate_cell_rows": candidate_cells,
         "imagettes_processed": imagettes_processed,
         "imagettes_skipped": sum(len(p["SkippedImagettes"]) for p in products),
+        "imagettes_centre_repaired": len(discovery.get("imagettes_centre_repaired", [])),
         "safes_without_imagettes": len(discovery.get("safes_without_imagettes", [])),
         "safes_skipped": len(discovery.get("safes_skipped", [])),
         "imagettes_unavailable": len(discovery.get("imagettes_unavailable", [])),

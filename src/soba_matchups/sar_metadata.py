@@ -1,6 +1,7 @@
 """Local Level-2 WV OCN metadata, associated by native OSW cell centres."""
 
 import hashlib
+import logging
 import math
 import re
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,8 @@ from shapely.geometry import MultiPolygon, Point, Polygon, box, mapping, shape
 from shapely.ops import unary_union
 
 from .output import file_identity
+
+logger = logging.getLogger(__name__)
 
 OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
@@ -258,11 +261,45 @@ def _stat(path):
     return {"path": str(path.resolve()), "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
+def _kilometres(a, b):
+    """Great-circle distance in km between two (lon, lat) points."""
+    p = math.pi / 180
+    h = math.sin((b[1] - a[1]) * p / 2) ** 2
+    h += math.cos(a[1] * p) * math.cos(b[1] * p) * math.sin((b[0] - a[0]) * p / 2) ** 2
+    return 12742.0 * math.asin(math.sqrt(h))
+
+
+def _wind_grid_centre(grid, index, frames):
+    """Return the mean (lon, lat) of the wind grid if it lies in the frame numbered like the file.
+
+    Used when the single OSW cell centre lies in no frame. A grid across the dateline is
+    averaged on 0..360 and wrapped back. Returns None when there is no usable grid or its mean
+    lies outside the frame of the file's own number.
+    """
+    if grid is None or not 1 <= index <= len(frames):
+        return None
+    lon, lat = grid
+    if lon.shape != lat.shape:
+        return None
+    ok = np.isfinite(lon) & np.isfinite(lat)
+    if not ok.any():
+        return None
+    lon, lat = lon[ok], lat[ok]
+    if np.ptp(lon) > 180:
+        lon = np.where(lon < 0, lon + 360, lon)
+    mean_lon = float(np.mean(lon))
+    centre = ((mean_lon + 180) % 360 - 180, float(np.mean(lat)))
+    return centre if shape(frames[index - 1]).covers(Point(*centre)) else None
+
+
 def _imagettes(root, safe, product, info, first, last, frames):
     """Build one record per measurement NetCDF, tied to its own manifest frame.
 
-    Returns the records and the files skipped: those with no cell centres, and those whose
-    centres lie in a frame that belongs to another imagette.
+    Returns the records and the files skipped: those with no cell centres, those whose
+    centres lie in a frame that belongs to another imagette, and those whose centre lies in no
+    frame while the wind grid does not fall in the frame of the file's number either. A file whose
+    centre lies in no frame but whose wind grid falls in its own frame is kept, with the mean of
+    the wind grid as its centre and a CentreRepair record.
     """
     paths = _measurements(root, safe)
     if len(paths) != len(frames):
@@ -296,6 +333,13 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 np.ma.asarray(dataset.variables[key][:]).filled(np.nan)
                 for key in ("oswLon", "oswLat")
             ]
+            # The wind grid is read only as a fallback for a centre that lies in no frame.
+            wind = None
+            if "owiLon" in dataset.variables and "owiLat" in dataset.variables:
+                wind = [
+                    np.ma.asarray(dataset.variables[key][:]).filled(np.nan).astype("float64")
+                    for key in ("owiLon", "owiLat")
+                ]
         # The file must not change while it is being read.
         if identity != _stat(path):
             raise ValueError(f"OCN metadata input changed during read: {path}")
@@ -344,6 +388,29 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 for x, y in centres
             )
         ]
+        osw_centre = [float(np.mean(lon[valid])), float(np.mean(lat[valid]))]
+        centre, repair = osw_centre, None
+        if not matches:
+            # Seen in real files: the OSW point is 10 to 12 km off while the wind grid is right.
+            wind_centre = _wind_grid_centre(wind, index, frames)
+            if wind_centre is None:
+                skipped.append(
+                    {
+                        "Name": path.name,
+                        "index": index,
+                        "reason": "OSW centre lies in no frame and the wind grid is not in the"
+                        " frame of the file's number",
+                        "metadata_inputs": [identity],
+                    }
+                )
+                continue
+            matches = [index - 1]
+            centre = [wind_centre[0], wind_centre[1]]
+            repair = {
+                "reason": "OSW centre lies in no frame; centre taken from the wind grid",
+                "osw_centre": osw_centre,
+                "offset_km": round(_kilometres(osw_centre, centre), 1),
+            }
         if len(matches) != 1:
             raise ValueError("OSW centres require unique one-to-one manifest frame association")
         relative = path.relative_to(safe.resolve()).as_posix()
@@ -356,9 +423,10 @@ def _imagettes(root, safe, product, info, first, last, frames):
                 "ContentDate": dict(zip(("Start", "End"), map(_iso, times))),
                 "GeoFootprint": frames[matches[0]],
                 # The mean of the OSW cell centres (a WV imagette has one), as [lon, lat].
-                "Centre": [float(np.mean(lon[valid])), float(np.mean(lat[valid]))],
+                "Centre": centre,
                 "href": path.as_uri(),
                 "metadata_inputs": [identity],
+                **({"CentreRepair": repair} if repair else {}),
             }
         )
     rows = []
@@ -416,6 +484,7 @@ def discover_local(
         "missions": sorted(set(missions)),
         "sar_archive_root": str(archive_root),
         "coverage_scope": "files present in selected local archive directories",
+        "imagettes_centre_repaired": [],
     }
     products, seen = [], set()
     count = 0
@@ -468,6 +537,16 @@ def discover_local(
                         )
                     except (KeyError, AttributeError, OSError) as exc:
                         raise ValueError(f"Invalid local OCN metadata {safe}: {exc}") from exc
+                    provenance["imagettes_centre_repaired"].extend(
+                        {
+                            "safe": safe.name,
+                            "index": row["index"],
+                            "name": row["Name"],
+                            "osw_offset_km": row["CentreRepair"]["offset_km"],
+                        }
+                        for row in product["Imagettes"]
+                        if "CentreRepair" in row
+                    )
                     provenance["ocn_inputs"].extend(
                         row["metadata_inputs"][0]
                         for row in product["Imagettes"] + product["SkippedImagettes"]
@@ -478,6 +557,12 @@ def discover_local(
         raise ValueError(f"No SAFEs found under searched local OCN archive root: {archive_root}")
     provenance["safes_found"] = count
     provenance["products_selected"] = len(products)
+    if provenance["imagettes_centre_repaired"]:
+        logger.warning(
+            "%d imagette centres taken from the wind grid (OSW centre in no frame); "
+            "listed in the manifest discovery.imagettes_centre_repaired",
+            len(provenance["imagettes_centre_repaired"]),
+        )
     return sorted(products, key=lambda p: (p["ContentDate"]["Start"], p["Name"])), provenance
 
 

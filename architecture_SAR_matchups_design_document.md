@@ -203,6 +203,7 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | `ref_lon` | Longitude in degrees east, in [-180, 180). |
 | `ref_lat` | Latitude in degrees north. |
 | `delta_diff_time_minutes` | Observation time minus the imagette midpoint, in minutes. Positive means the observation is later. |
+| `sar_distance_to_coast` | Distance in km from the point to the nearest ocean coast, read from the NASA GSFC grid named by the recipe key `distance_to_coast_file`. Negative over land. Null when the key is not set or the grid cannot be read; the run goes on and the manifest says why. |
 
 ### KNMI fields (ASCAT, HSCAT)
 
@@ -282,6 +283,7 @@ In a container, bind the KNMI tree at its real path and use that path as
   identity of each input file.
 - `manifest.json`: the resolved recipe, the checksum and size of every input,
   `reference_product` (the label in the file names), `reference_versions` (each version used in the run), `reference_cells` (cells read from the reference files that carry a measurement), counts, the matching rules,
+  `distance_to_coast` (status, identity of the grid file, error text if any),
   known limitations, and the checksum of every output file. Reference inputs carry
   the `source`, `version` and `resolution` read from the file, not the requested ones.
 

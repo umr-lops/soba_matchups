@@ -10,6 +10,7 @@ import numpy as np
 from soba_matchups import __version__
 from soba_matchups.adapters import SkippableReference, alti, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
+from soba_matchups.distance_to_coast import DistanceToCoast
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_parquet import (
     IMAGETTE_MAPPING,
@@ -95,6 +96,8 @@ def run(recipe):
             f"Output already exists; choose a fresh directory: {recipe.output_dir}"
         )
     adapter = ADAPTERS[recipe.instrument]
+    # The grid is opened once; if it cannot be, every point gets null and the run goes on.
+    coast = DistanceToCoast(recipe.distance_to_coast_file)
     skipped_references = []
     refs = reference_inputs(recipe, skipped_references)
     for entry in skipped_references:
@@ -218,6 +221,9 @@ def run(recipe):
                             },
                         }
                     )
+                distances = coast.at([p["ref_lon"] for p in points], [p["ref_lat"] for p in points])
+                for point, distance in zip(points, distances):
+                    point["sar_distance_to_coast"] = distance
                 diagnostics.append(
                     {
                         "safe_id": product["Id"],
@@ -251,7 +257,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 11,
+        "schema_version": 12,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -273,6 +279,7 @@ def run(recipe):
             {**ref["identity"], **{key: ref[key] for key in ["source", "version", "resolution"]}}
             for ref in refs
         ],
+        "distance_to_coast": coast.summary(),
         "reference_files": len(refs),
         "reference_files_skipped": skipped_references,
         "reference_product": label,
@@ -317,6 +324,7 @@ def run(recipe):
             **units,
             "ref_lon": "degrees_east, [-180,180)",
             "ref_lat": "degrees_north",
+            "sar_distance_to_coast": "km, from the NASA GSFC grid; null when it is unavailable",
         },
         "limitations": [
             *(PARQUET_LIMITATIONS if from_parquet else ARCHIVE_LIMITATIONS),

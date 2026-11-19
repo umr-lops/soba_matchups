@@ -44,6 +44,7 @@ class Recipe:
     resolution: str
     sar_archive_root: Path | None = None
     sar_parquet_root: Path | None = None
+    distance_to_coast_file: Path | None = None
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -59,8 +60,10 @@ def load_recipe(path):
         data = tomllib.load(stream)
     # Reject unknown keys and missing required keys.
     optional = {"sar_archive_root", "sar_parquet_root"}
-    required = set(Recipe.__dataclass_fields__) - {"path"} - optional
-    unknown = set(data) - required - optional
+    # The distance-to-coast grid is a file, and a run goes on without it.
+    extra = {"distance_to_coast_file"}
+    required = set(Recipe.__dataclass_fields__) - {"path"} - optional - extra
+    unknown = set(data) - required - optional - extra
     if unknown or required - set(data):
         raise ValueError(
             f"Unknown recipe keys: {sorted(unknown)}; missing keys: {sorted(required - set(data))}"
@@ -113,6 +116,12 @@ def load_recipe(path):
         if not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
         data[key] = (path.parent / data[key]).resolve()
+    if "distance_to_coast_file" in data:
+        value = data["distance_to_coast_file"]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("distance_to_coast_file must be a nonempty path")
+        # Not required to exist here: the run flags a missing file and carries on.
+        data["distance_to_coast_file"] = (path.parent / value).resolve()
     # Inputs must exist, and results must never be written inside them.
     for key in inputs:
         if not data[key].is_dir():

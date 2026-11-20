@@ -23,9 +23,15 @@ def _points(recipe):
 def test_every_point_has_the_three_angle_fields(local_recipe):
     """The three fields exist on every point; the run goes on if the library cannot place them."""
     manifest, points = _points(local_recipe)
-    assert points and manifest["schema_version"] == 13
+    assert points and manifest["schema_version"] == 14
     for point in points:
-        for key in ("sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading"):
+        for key in (
+            "sar_incidence_angle",
+            "sar_elevation_angle",
+            "sar_ground_heading",
+            "sar_ground_heading_uncertainty",
+            "sar_wv_subswath",
+        ):
             assert key in point
     info = manifest["sar_angles"]
     assert info["library"] == "s1-geometry" and info["version"]

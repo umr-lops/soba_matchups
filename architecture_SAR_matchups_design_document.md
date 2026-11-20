@@ -205,10 +205,12 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | `delta_diff_time_minutes` | Observation time minus the imagette midpoint, in minutes. Positive means the observation is later. |
 | `sar_distance_to_coast` | Distance in km from the point to the nearest ocean coast, read from the NASA GSFC grid named by the recipe key `distance_to_coast_file`. Negative over land. Null when the key is not set or the grid cannot be read; the run goes on and the manifest says why. |
 | `sar_incidence_angle` | Incidence angle of the SAR acquisition at the point, in degrees from the local vertical. Computed by the `s1-geometry`. |
-| `sar_elevation_angle` | Elevation angle at the point, in degrees, from `s1-geometry`. |
+| `sar_elevation_angle` | Off-nadir angle measured at the satellite, in degrees (the ESA OCN convention), from `s1-geometry`. It is not an angle at the point, and it is not 90 degrees minus the incidence. |
 | `sar_ground_heading` | Heading of the SAR track at the point, in degrees clockwise from north, from `s1-geometry`. |
+| `sar_ground_heading_uncertainty` | Uncertainty of the heading in degrees: the p95 of the `s1-geometry` WV heading error, 0.4. |
+| `sar_wv_subswath` | WV subswath of the imagette the model placed the point on, 1 or 2. It agrees with the `wv1` or `wv2` in the measurement file name; a point where it or the imagette number disagrees gets null angles. |
 
-The three `sar_*_angle` and heading fields are null for a point outside the product footprint, which the library does not extrapolate to (for example an altimeter point kept by the 30 km fallback of section 8), and for every point of a product the library cannot handle. The run goes on in both cases; the products it could not handle are listed in `manifest.sar_angles.errors`.
+The SAR angle fields (incidence, elevation, heading, heading uncertainty, subswath) are null for a point outside the product footprint, which the library does not extrapolate to (for example an altimeter point kept by the 30 km fallback of section 8), and for every point of a product the library cannot handle. The run goes on in both cases; the products it could not handle are listed in `manifest.sar_angles.errors`.
 
 ### KNMI fields (ASCAT, HSCAT)
 

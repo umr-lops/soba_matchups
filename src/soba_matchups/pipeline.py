@@ -11,6 +11,7 @@ from soba_matchups import __version__
 from soba_matchups.adapters import SkippableReference, alti, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.distance_to_coast import DistanceToCoast
+from soba_matchups.sar_angles import FIELDS as ANGLE_FIELDS, add_angles, library_version
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_parquet import (
     IMAGETTE_MAPPING,
@@ -136,6 +137,7 @@ def run(recipe):
         )
         verify_inputs = verify_local_inputs
     items, diagnostics = [], []
+    angle_errors = []
     seen_points = set()
     imagettes_processed = duplicate_points = safes_without_candidates = 0
     candidate_cells = 0
@@ -164,6 +166,7 @@ def run(recipe):
         if not any(len(indices) for _, indices in candidates):
             safes_without_candidates += 1
             continue
+        pending = []
         for imagette in product["Imagettes"]:
             imagettes_processed += 1
             groups = []
@@ -247,9 +250,19 @@ def run(recipe):
                         }
                     )
             if groups:
-                items.append(
-                    imagette_item(product, imagette, fields, groups, recipe.time_tolerance_minutes)
-                )
+                pending.append((imagette, groups))
+        # One library call per product, before the Items copy their points.
+        error = add_angles(
+            product.get("WVFootprint"),
+            [p for _, groups in pending for g in groups for p in g["points"]],
+        )
+        if error:
+            angle_errors.append({"safe": product["Name"], "error": error})
+            logger.error("SAR angles unavailable for %s: %s", product["Name"], error)
+        for imagette, groups in pending:
+            items.append(
+                imagette_item(product, imagette, fields, groups, recipe.time_tolerance_minutes)
+            )
     # Confirm no input changed while matching, before anything is published.
     verify_inputs(discovery)
     for ref in refs:
@@ -257,7 +270,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 12,
+        "schema_version": 13,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -280,6 +293,11 @@ def run(recipe):
             for ref in refs
         ],
         "distance_to_coast": coast.summary(),
+        "sar_angles": {
+            "library": "s1-geometry",
+            "version": library_version(),
+            "errors": angle_errors,
+        },
         "reference_files": len(refs),
         "reference_files_skipped": skipped_references,
         "reference_product": label,
@@ -325,6 +343,7 @@ def run(recipe):
             "ref_lon": "degrees_east, [-180,180)",
             "ref_lat": "degrees_north",
             "sar_distance_to_coast": "km, from the NASA GSFC grid; null when it is unavailable",
+            **{k: f"{v}; null when unavailable" for k, v in ANGLE_FIELDS.items()},
         },
         "limitations": [
             *(PARQUET_LIMITATIONS if from_parquet else ARCHIVE_LIMITATIONS),

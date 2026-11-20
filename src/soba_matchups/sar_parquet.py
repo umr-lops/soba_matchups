@@ -178,6 +178,8 @@ def _product(row, archive_root):
         "Name": name,
         "ContentDate": content,
         "GeoFootprint": mapping(unary_union([shape(i["GeoFootprint"]) for i in imagettes])),
+        # The footprint as the catalogue gives it (one ring per imagette, in time order).
+        "WVFootprint": row["GeoFootprint"],
         "Imagettes": imagettes,
         "SkippedImagettes": [],
     }, unavailable

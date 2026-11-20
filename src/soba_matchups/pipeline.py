@@ -11,7 +11,12 @@ from soba_matchups import __version__
 from soba_matchups.adapters import SkippableReference, alti, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.distance_to_coast import DistanceToCoast
-from soba_matchups.sar_angles import FIELDS as ANGLE_FIELDS, add_angles, library_version
+from soba_matchups.sar_angles import (
+    FIELDS as ANGLE_FIELDS,
+    add_angles,
+    library_version,
+    subswath_of,
+)
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_parquet import (
     IMAGETTE_MAPPING,
@@ -252,13 +257,15 @@ def run(recipe):
             if groups:
                 pending.append((imagette, groups))
         # One library call per product, before the Items copy their points.
-        error = add_angles(
-            product.get("WVFootprint"),
-            [p for _, groups in pending for g in groups for p in g["points"]],
-        )
+        flat, expected = [], []
+        for imagette, groups in pending:
+            for group in groups:
+                for point in group["points"]:
+                    flat.append(point)
+                    expected.append((imagette["index"], subswath_of(imagette["Name"])))
+        error = add_angles(product["Name"], product.get("WVFootprint"), flat, expected)
         if error:
             angle_errors.append({"safe": product["Name"], "error": error})
-            logger.error("SAR angles unavailable for %s: %s", product["Name"], error)
         for imagette, groups in pending:
             items.append(
                 imagette_item(product, imagette, fields, groups, recipe.time_tolerance_minutes)
@@ -270,7 +277,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 13,
+        "schema_version": 14,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",

@@ -16,3 +16,5 @@ dependencies:
   - shapely=2.2.0
   - netcdf4=1.7.4
   - pyarrow=26.0.0
+  - pip:
+      - s1-geometry==2026.11.20

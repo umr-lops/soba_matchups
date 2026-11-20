@@ -15,6 +15,7 @@ from shapely.geometry import MultiPolygon, Point, Polygon, box, mapping, shape
 from shapely.ops import unary_union
 
 from .output import file_identity
+from .sar_angles import footprint_from_frames
 
 logger = logging.getLogger(__name__)
 
@@ -529,6 +530,8 @@ def discover_local(
                             "End": _iso(acquisition_end),
                         },
                         "GeoFootprint": mapping(unary_union([shape(frame) for frame in frames])),
+                        # The imagette rings in manifest order, for the SAR angle model.
+                        "WVFootprint": footprint_from_frames(frames),
                         "manifest_identity": identity,
                     }
                     try:

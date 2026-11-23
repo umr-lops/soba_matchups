@@ -11,11 +11,12 @@ The output format is specified in
 Run
 ---
 
-Install from the checkout::
+Install from the checkout with `pixi <https://pixi.sh>`_, which builds the environment from
+``pixi.lock`` and installs the package in it::
 
-   conda env create -f environment.yml
-   conda activate soba_matchups
-   python -m pip install -e . --no-build-isolation
+   pixi install
+
+Then prefix the commands below with ``pixi run``, or open ``pixi shell`` first.
 
 Copy ``examples/hscat.toml`` and edit the paths and dates. Set
 ``reference_root`` to the KNMI ``satellite/l2b`` root and ``sar_archive_root``

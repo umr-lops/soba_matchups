@@ -15,21 +15,24 @@ The output is one STAC JSON file per matched imagette.
 ## Run it
 
 ```sh
-conda env create -f environment.yml
-conda activate soba_matchups
-python -m pip install -e . --no-build-isolation
+pixi install                        # the environment, from pixi.lock (https://pixi.sh)
 
 cp examples/hscat.toml hscat.toml   # then edit the paths and dates
-soba_matchups validate --recipe hscat.toml
-soba_matchups run --recipe hscat.toml
+pixi run soba_matchups validate --recipe hscat.toml
+pixi run soba_matchups run --recipe hscat.toml
 ```
+
+`pixi shell` opens a shell in the environment, where `soba_matchups` runs directly.
+`pixi run test` runs the tests and `pixi run lint` the pre-commit hooks.
 
 `output_dir` must not exist yet. A finished run holds `items/` (the STAC files),
 `diagnostics.json`, `sar_metadata.json` and `manifest.json`.
 
 ## Apptainer
 
-Build once with internet access. Running needs only local files.
+Build once with internet access. Running needs only local files. The image holds the
+`prod` environment of `pixi.lock` (runtime only, about 210 MB), so it runs exactly the
+versions the tests run.
 
 ```sh
 apptainer build soba_matchups.sif apptainer.def

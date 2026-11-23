@@ -1,8 +1,12 @@
+# Stage 1: install exactly pixi.lock's runtime environment (`prod`: no dev tools), then drop
+# what is never used at run time.
 Bootstrap: docker
-From: python:3.12-slim
+From: ghcr.io/prefix-dev/pixi:0.77.0-bookworm-slim
+Stage: build
 
 %files
     pyproject.toml /opt/soba_matchups/pyproject.toml
+    pixi.lock /opt/soba_matchups/pixi.lock
     README.md /opt/soba_matchups/README.md
     LICENSE /opt/soba_matchups/LICENSE
     src /opt/soba_matchups/src
@@ -10,10 +14,32 @@ From: python:3.12-slim
 
 %post
     set -eu
-    python -m pip install --no-cache-dir /opt/soba_matchups
-    python -m pip check
+    cd /opt/soba_matchups
+    pixi install --locked -e prod
+    rm -rf /root/.cache
+    # C headers, static libraries, docs, the test suites shipped inside packages and the
+    # conda package records (keep `testing` modules: xarray imports its own at start-up).
+    env=.pixi/envs/prod
+    rm -rf $env/include $env/share/doc $env/share/man $env/share/info $env/conda-meta
+    find $env/lib -maxdepth 1 -name '*.a' -delete
+    find $env/lib/python3.12/site-packages -type d -name tests -prune -exec rm -rf {} +
+    find $env -name __pycache__ -prune -exec rm -rf {} +
+
+# Stage 2: the environment and the package source at the same paths (the package is an
+# editable install pointing at src/), without pixi or its caches.
+Bootstrap: docker
+From: debian:bookworm-slim
+Stage: final
+
+%files from build
+    /opt/soba_matchups/.pixi/envs/prod /opt/soba_matchups/.pixi/envs/prod
+    /opt/soba_matchups/src /opt/soba_matchups/src
+    /opt/soba_matchups/pyproject.toml /opt/soba_matchups/pyproject.toml
+    /opt/soba_matchups/examples /opt/soba_matchups/examples
 
 %environment
+    export PATH=/opt/soba_matchups/.pixi/envs/prod/bin:$PATH
+    export CONDA_PREFIX=/opt/soba_matchups/.pixi/envs/prod
     export PYTHONUNBUFFERED=1
     export PYTHONDONTWRITEBYTECODE=1
 
@@ -22,7 +48,7 @@ From: python:3.12-slim
 
 %test
     set -eu
-    python -c 'import soba_matchups.pipeline'
+    python -c 'import soba_matchups.pipeline, pyarrow.parquet, netCDF4, s1_geometry'
     soba_matchups --help
 
 %labels
@@ -30,8 +56,11 @@ From: python:3.12-slim
     org.soba.source https://github.com/umr-lops/soba_matchups
 
 %help
-    Build from the repository root (internet access required for the Python packages):
+    Build from the repository root (internet access required for the packages):
         apptainer build soba_matchups.sif apptainer.def
+
+    The environment is pixi.lock's `prod` environment, so the image holds exactly the versions
+    tested in CI. Commit pixi.lock before building.
 
     Bind the KNMI and ESA archives read-only, and the output workspace writable:
         ESA=/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa

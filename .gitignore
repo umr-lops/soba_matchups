@@ -17,3 +17,6 @@ docs/_build/
 !.env.example
 .hermes/
 .DS_Store
+
+# pixi environments
+.pixi/

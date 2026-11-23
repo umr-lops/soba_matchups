@@ -53,6 +53,13 @@ Recipes select an explicit ``instrument`` / ``platform`` / ``resolution`` combin
 * ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
 * ``karin`` / ``swot`` / ``2km``: SWOT KaRIn L2 wave and wind (``examples/swot.toml``).
 * ``alti`` / ``cci`` / ``l2p``: ESA CCI Sea State altimeter wave height, all missions found under the root (``examples/alti.toml``).
+* ``buoy`` / ``ndbc-tao-cmems`` / ``point``: in situ wind from NDBC buoys (``get_ncei_data``),
+  TAO moorings (``get_tao_data``) and the CMEMS in situ buoys (moored surface buoys and
+  drifting surface floats, by each file's ``source``) that are in neither
+  (``examples/buoy.toml``). ``reference_root`` holds ``ncei/ncei_concat/wind`` and
+  ``tao/tao_concat``; the extra key ``cmems_insitu_root`` names the CMEMS 013_030 dataset folder.
+  NDBC land stations are left out. ``start_date`` / ``stop_date`` select the days the records
+  fall in. Speeds are at the anemometer height and directions are "from"; every flag is kept.
 
 Other combinations, including ``metop-d``, are rejected, not substituted.
 Any processing version is accepted, so the recipe has no version key. Each file's
@@ -89,7 +96,10 @@ Matching and output
 Each OCN file's ``oswLon``/``oswLat`` centres identify its unique native manifest
 frame, independent of file or frame order. Its own ``firstMeasurementTime`` and
 ``lastMeasurementTime`` attributes supply the UTC interval. Missing or ambiguous
-associations fail explicitly; there is no suffix-order fallback. Dateline pieces
+associations fail explicitly; there is no suffix-order fallback. The one exception is a SAFE
+whose name start or stop time contradicts its manifest (ESA published some WV SAFEs with the
+placeholder stop time ``20000101T000002``): it is skipped and listed under
+``discovery.safes_skipped`` in the manifest, and the run goes on. Dateline pieces
 remain one imagette. SAR discovery includes tolerance and the previous archive
 day to include acquisitions crossing midnight. Missing day folders are recorded;
 local coverage is not checked against an external catalogue.

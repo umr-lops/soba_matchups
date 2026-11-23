@@ -48,11 +48,14 @@ def imagette_item(product, imagette, fields, groups, tolerance):
     # One asset and one matchup block per reference granule.
     for i, group in enumerate(groups, 1):
         key = f"reference_{i:03d}"
+        name = group["reference_file"]
         assets[key] = {
             "href": Path(group["reference_path"]).as_uri(),
             "type": (
                 "application/gzip"
-                if group["reference_file"].endswith(".gz")
+                if name.endswith(".gz")
+                else "application/vnd.apache.parquet"
+                if name.endswith(".parquet")
                 else "application/x-netcdf"
             ),
             "roles": ["data"],
@@ -72,6 +75,7 @@ def imagette_item(product, imagette, fields, groups, tolerance):
                 "reference_source": group["reference_source"],
                 "reference_version": group["reference_version"],
                 "reference_resolution": group["reference_resolution"],
+                **group.get("group_fields", {}),
                 "points": points,
             }
         )

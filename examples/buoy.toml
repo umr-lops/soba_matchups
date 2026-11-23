@@ -1,0 +1,15 @@
+instrument = "buoy"
+platform = "ndbc-tao-cmems"
+resolution = "point"
+
+# The folder that holds ncei/ncei_concat/wind/ (get_ncei_data) and tao/tao_concat/ (get_tao_data).
+reference_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/insitu_data"
+# The CMEMS in situ dataset folder, with its index_{history,monthly,latest}.txt. Only its buoys
+# (moored surface buoys, drifting surface floats) that are neither NDBC stations nor TAO sites.
+cmems_insitu_root = "/reference/ref14/public/copernicus/INSITU_GLO_PHYBGCWAV_DISCRETE_MYNRT_013_030/cmems_obs-ins_glo_phybgcwav_mynrt_na_irr"
+start_date = "2021-01-04"
+stop_date = "2021-01-05"  # Exclusive; selects the days the buoy records fall in.
+sar_missions = ["S1A", "S1B"]
+time_tolerance_minutes = 30
+sar_archive_root = "/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa"
+output_dir = "../runs/buoy-local-001"

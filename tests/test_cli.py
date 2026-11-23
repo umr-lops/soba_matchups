@@ -182,7 +182,7 @@ def test_knmi_cli_product_labels_and_actual_provenance(
     assert main(["run", "--recipe", str(local_recipe)]) == 0
     result = local_recipe.parent / "result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["schema_version"] == 14
+    assert manifest["schema_version"] == 15
     assert manifest["reference_product"] == f"KNMI_{suffix.split('_', 1)[1]}"
     assert manifest["stac_items"] == 2
     assert manifest["imagettes_skipped"] == 0
@@ -207,3 +207,17 @@ def test_incomplete_local_safe_does_not_publish(local_recipe):
     next(recipe.parent.glob("esa/**/measurement/*.nc")).unlink()
     assert main(["run", "--recipe", str(recipe)]) == 2
     assert not (recipe.parent / "result").exists()
+
+
+def test_safe_with_a_placeholder_stop_time_in_its_name_is_skipped_and_listed(local_recipe):
+    """ESA published WV SAFEs named with stop time 20000101T000002; the run leaves them out."""
+    safe = "S1A_WV_OCN__2SSV_20260629T120000_20260629T121003_000001_000001_0001.SAFE"
+    day = local_recipe.parent / "esa/sentinel-1a/L2/WV/S1A_WV_OCN__2S/2026/180"
+    bad = safe.replace("20260629T121003", "20000101T000002").replace("_0001.SAFE", "_0002.SAFE")
+    shutil.copytree(day / safe, day / bad)
+    assert main(["run", "--recipe", str(local_recipe)]) == 0
+    manifest = json.loads((local_recipe.parent / "result/manifest.json").read_text())
+    (skipped,) = manifest["discovery"]["safes_skipped"]
+    assert skipped["safe"] == bad
+    assert "name 20000101T000002, manifest 2026-06-29T12:10:03Z" in skipped["reason"]
+    assert manifest["safes_skipped"] == 1 and manifest["stac_items"] > 0

@@ -7,7 +7,8 @@
 [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Match Sentinel-1 WV L2 OCN imagettes with scatterometer winds (KNMI ASCAT, HSCAT) or SWOT KaRIn waves and winds.
+Match Sentinel-1 WV L2 OCN imagettes with scatterometer winds (KNMI ASCAT, HSCAT), SWOT KaRIn waves and winds,
+altimeter wave heights (CCI, CMEMS) or buoy winds (NDBC, TAO and CMEMS in situ).
 The output is one STAC JSON file per matched imagette.
 
 

@@ -7,9 +7,9 @@
 [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Match Sentinel-1 WV L2 OCN imagettes with scatterometer winds (KNMI ASCAT, HSCAT), SWOT KaRIn waves and winds,
+Match Sentinel-1 L2 OCN products (WV imagettes, or IW and EW scenes) with scatterometer winds (KNMI ASCAT, HSCAT), SWOT KaRIn waves and winds,
 altimeter wave heights (CCI, CMEMS) or buoy winds (NDBC, TAO and CMEMS in situ).
-The output is one STAC JSON file per matched imagette.
+The output is one STAC JSON file per matched imagette, or per matched IW/EW scene.
 
 
 ## Run it
@@ -25,7 +25,8 @@ pixi run soba_matchups run --recipe hscat.toml
 `pixi shell` opens a shell in the environment, where `soba_matchups` runs directly.
 `pixi run test` runs the tests and `pixi run lint` the pre-commit hooks.
 
-`output_dir` must not exist yet. A finished run holds `items/` (the STAC files),
+For IW or EW, add `sar_mode = "IW"` (or `"EW"`) and `sar_parquet_root` (the CDSE daily parquet
+files); see `examples/hscat_iw.toml`. `output_dir` must not exist yet. A finished run holds `items/` (the STAC files),
 `diagnostics.json`, `sar_metadata.json` and `manifest.json`.
 
 ## Apptainer

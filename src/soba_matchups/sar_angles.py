@@ -1,8 +1,8 @@
 """SAR incidence, elevation and ground heading of matched points, from the s1-geometry library.
 
-The library works from the product footprint alone (one ring per imagette, in time order) and
-needs no orbit file. A product it cannot handle never stops a run: its points get null angles
-and the product is named in the manifest.
+The library works from the product footprint alone and needs no orbit file: for WV one ring per
+imagette, in time order; for an IW or EW scene its four corners. A product it cannot handle never
+stops a run: its points get null angles and the product is named in the manifest.
 """
 
 import logging
@@ -17,8 +17,11 @@ FIELDS = {
     "sar_incidence_angle": "degrees, from the local vertical",
     "sar_elevation_angle": "degrees, off-nadir angle at the satellite (ESA OCN convention)",
     "sar_ground_heading": "degrees clockwise from north",
-    "sar_ground_heading_uncertainty": "degrees, p95 of the s1-geometry WV heading error",
-    "sar_wv_subswath": "WV subswath of the imagette, 1 or 2",
+    "sar_ground_heading_uncertainty": (
+        "degrees: WV, p95 of the s1-geometry WV heading error; IW/EW, the library's"
+        " latitude-dependent uncertainty of its IW heading model"
+    ),
+    "sar_wv_subswath": "WV subswath of the imagette, 1 or 2; null for IW and EW",
 }
 # The model fits the track on the two subswath chains, so it needs two imagettes of each.
 MIN_IMAGETTES = 4
@@ -109,6 +112,46 @@ def add_angles(name, footprint, points, expected=None):
     if disagree:
         text = f"{disagree} points whose imagette number or subswath disagree with the model"
         return _report(name, text + "; their angles are null")
+    return None
+
+
+def add_scene_angles(name, corners, mode, points):
+    """Write the SAR angle fields of an IW or EW scene's points in place; return the problem text.
+
+    corners are the scene's four corners, longitudes continuous across 180; each point is placed
+    in the same longitude frame. A point outside the footprint gets null without being reported
+    (the library does not extrapolate); any other failure nulls the point and is reported once
+    per product with the number of points it hit.
+    """
+    for point in points:
+        point.update({key: None for key in FIELDS})
+    if not points:
+        return None
+    if not corners:
+        return _report(name, "no footprint for this product")
+    try:
+        from s1_geometry import estimate_geometry
+    except Exception as exc:
+        return _report(name, f"{type(exc).__name__}: {exc}")
+    middle = float(np.mean([lon for lon, _ in corners]))
+    failures = {}
+    for point in points:
+        lon = middle + ((point["ref_lon"] - middle + 180) % 360 - 180)
+        try:
+            angles = estimate_geometry(corners, ref_lat=point["ref_lat"], mode=mode, ref_lon=lon)
+        except Exception as exc:  # the library raises ValueError
+            text = f"{type(exc).__name__}: {exc}"
+            if "outside the SAFE footprint" not in text:
+                failures[text] = failures.get(text, 0) + 1
+            continue
+        point["sar_incidence_angle"] = _finite(angles.incidence_deg)
+        point["sar_elevation_angle"] = _finite(angles.elevation_deg)
+        point["sar_ground_heading"] = _finite(angles.heading_deg)
+        if point["sar_ground_heading"] is not None:
+            point["sar_ground_heading_uncertainty"] = _finite(angles.heading_uncertainty_deg)
+    if failures:
+        text = "; ".join(f"{n} of {len(points)} points: {t}" for t, n in failures.items())
+        return _report(name, text)
     return None
 
 

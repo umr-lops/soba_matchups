@@ -6,17 +6,28 @@ STAC 1.0.0 Items and three run files.
 
 ## 1. Product types and collections
 
-The tool reads **Sentinel-1 WV Level-2 OCN products only (No support for SLC)**. Discovery rejects any other
-product type.
+The tool reads **Sentinel-1 Level-2 OCN products only (No support for SLC or GRD)**, in one of
+three acquisition modes chosen by the recipe key `sar_mode`: `WV` (the default), `IW` or `EW`.
+Discovery rejects any other product type, and any product of another mode.
 
 You can also use the **sar_parquet_root** flag in recipes to specify the path for the daily parquets if you want to use only the SAR metadata for matchups.
+IW and EW **require** it: everything the tool knows about an IW or EW product comes from its row
+in the CDSE daily parquet files (name, `ContentDate`, `GeoFootprint`) and from `s1-geometry`.
+The archive, when `sar_archive_root` is also set, is only asked which measurement file the SAFE
+holds; no SAR file is opened.
 
-One collection per product type:
+One collection per product type and mode:
 
-| Proposed collection id | Product | Status |
-| --- | --- | --- |
-| `sar-matchups-wv-ocn` | Sentinel-1 WV L2 OCN | Items implemented; no collection document |
-| `sar-matchups-wv-slc` | Sentinel-1 WV L1 SLC | not implemented |
+| Proposed collection id | Product | Matched unit | Status |
+| --- | --- | --- | --- |
+| `sar-matchups-wv-ocn` | Sentinel-1 WV L2 OCN | imagette | Items implemented; no collection document |
+| `sar-matchups-iw-ocn` | Sentinel-1 IW L2 OCN | scene (one SAFE) | Items implemented; no collection document |
+| `sar-matchups-ew-ocn` | Sentinel-1 EW L2 OCN | scene (one SAFE) | Items implemented; no collection document |
+| `sar-matchups-wv-slc` | Sentinel-1 WV L1 SLC | imagette | not implemented |
+
+An IW or EW OCN product holds one measurement file for the whole scene, so the scene plays the
+part of the imagette: one Item per matched SAFE, with `imagette_index` 1. A run reads one mode,
+so a run or a collection never mixes WV imagettes with IW or EW scenes.
 
 
 - One run reads one product type. A run or a collection never mixes types: the OCN
@@ -45,7 +56,8 @@ run is complete or absent. An imagette without a match produces no Item.
 ## 3. File naming
 
 ```
-<SAFE name without .SAFE>__IMG<NNN>__<PRODUCT>.json
+<SAFE name without .SAFE>__IMG<NNN>__<PRODUCT>.json     WV: one Item per imagette
+<SAFE name without .SAFE>__<PRODUCT>.json               IW, EW: one Item per scene
 ```
 
 Example (SAFE `S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63`,
@@ -77,7 +89,10 @@ Product label by recipe:
 | `alti` / `cmems` / `l3` | `CMEMS_WAV_L3_ALTI_VAVH` (all CMEMS altimeter missions of the root; no release in the label) |
 | `buoy` / `ndbc-tao-cmems` / `point` | `INSITU_NDBC_TAO_CMEMS_WIND` (NDBC buoys, TAO moorings and the CMEMS in situ buoys in neither) |
 
-The same imagette matched to SWOT is named
+An IW scene matched to HY-2B HSCAT is named
+`S1A_IW_OCN__2SDH_20250415T070725_20250415T070754_058764_0747A0_F658__KNMI_HSCAT_HY2B_25KM.json`.
+
+The same WV imagette matched to SWOT is named
 `S1D_WV_OCN__2SSV_20260622T213558_20260622T214335_003354_005E47_1F38__IMG010__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json`.
 
 The processing version of the reference files is not part of the name. The Item
@@ -138,11 +153,11 @@ The same Item with only `stac_version` set to `1.1.0` also passes (one Item test
 | `type` | `Feature` |
 | `stac_version` | `1.0.0` |
 | `stac_extensions` | `[]`. No extension schema is claimed. |
-| `id` | `local_` plus a SHA-256 of the SAFE name and the measurement file's path inside the SAFE. Deterministic and unique per imagette. Not a CDSE UUID, and not equal to the file name. |
+| `id` | `local_` plus a SHA-256 of the SAFE name and the measurement file's path inside the SAFE. Deterministic and unique per imagette. Not a CDSE UUID, and not equal to the file name. For an IW or EW scene, a SHA-256 of the SAFE name and `scene`, so the id does not depend on whether the archive was given. |
 | `geometry` | Imagette footprint in WGS84, `Polygon` or `MultiPolygon`. Positions are `[longitude, latitude]`, the GeoJSON order that STAC requires. |
 | `bbox` | `[west, south, east, north]`, the bounds of `geometry`. |
 | `properties.datetime` | `null`. The interval is in `start_datetime` and `end_datetime`. |
-| `properties.start_datetime`, `end_datetime` | Imagette acquisition interval, UTC, from the `firstMeasurementTime` and `lastMeasurementTime` attributes of the OCN file. |
+| `properties.start_datetime`, `end_datetime` | Imagette acquisition interval, UTC, from the `firstMeasurementTime` and `lastMeasurementTime` attributes of the OCN file (in parquet mode, the imagette's `ContentDate` in `WVImagettes`). For an IW or EW scene, the product's `ContentDate` in the daily parquet file. |
 | `assets` | Source files, see section 9. |
 | `links` | `[]`. No catalogue or collection URL is invented. |
 
@@ -159,7 +174,7 @@ SAR Matchup draft and do not claim compliance with it.
 | Field | Meaning |
 | --- | --- |
 | `sarmatchup:sar_platform` | SAR platform, for example `sentinel-1a`. |
-| `sarmatchup:sar_instrument_mode` | `WV` |
+| `sarmatchup:sar_instrument_mode` | `WV`, `IW` or `EW`, from the SAFE name. |
 | `sarmatchup:sar_product_type` | `OCN` |
 | `sarmatchup:sar_safe` | Full parent SAFE name. |
 | `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT` or `SWOT KaRIn`. For the CCI and CMEMS altimeters, the missions of the Item joined by ` + `, for example `Jason-3 altimeter + Sentinel-3 A altimeter`. For buoys, the sources of the Item joined the same way, among `NDBC buoy`, `TAO mooring` and `CMEMS in situ`. |
@@ -169,9 +184,9 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:lib_version` | `soba_matchups` version. |
 | `sarmatchup:n_coloc_points` | Number of retained associations across all granule groups. |
 | `sarmatchup:delta_diff_time_minutes_min`, `_max` | Smallest and largest signed point time difference in this Item. |
-| `sarmatchup:imagette_index` | Imagette number from the measurement file name. |
-| `sarmatchup:measurement_name` | Name of the imagette NetCDF file. |
-| `sarmatchup:polarization` | `VV` or `HH`. |
+| `sarmatchup:imagette_index` | Imagette number from the measurement file name. `1` for an IW or EW scene. |
+| `sarmatchup:measurement_name` | Name of the imagette NetCDF file. For an IW or EW scene, the one NetCDF file of the archive SAFE, or `null` when the archive was not given or does not hold it. |
+| `sarmatchup:polarization` | `VV` or `HH`: the co-polarization, the one an OCN product is processed on. A dual-polarization IW or EW product (`DV`, `DH` in the SAFE name) also has a cross-polarization channel. |
 | `sarmatchup:matchups` | Array of granule groups, section 7. |
 
 `sarmatchup:n_coloc_points` counts associations, not distinct coordinates. Two
@@ -213,8 +228,8 @@ can have two groups in an Item: a CMEMS history file and its monthly file, for e
 | `sar_incidence_angle` | Incidence angle of the SAR acquisition at the point, in degrees from the local vertical. Computed by the `s1-geometry`. |
 | `sar_elevation_angle` | Off-nadir angle measured at the satellite, in degrees (the ESA OCN convention), from `s1-geometry`. It is not an angle at the point, and it is not 90 degrees minus the incidence. |
 | `sar_ground_heading` | Heading of the SAR track at the point, in degrees clockwise from north, from `s1-geometry`. |
-| `sar_ground_heading_uncertainty` | Uncertainty of the heading in degrees: the p95 of the `s1-geometry` WV heading error, 0.4. |
-| `sar_wv_subswath` | WV subswath of the imagette the model placed the point on, 1 or 2. It agrees with the `wv1` or `wv2` in the measurement file name; a point where it or the imagette number disagrees gets null angles. |
+| `sar_ground_heading_uncertainty` | Uncertainty of the heading in degrees. WV: the p95 of the `s1-geometry` WV heading error, 0.4. IW, EW: the library's latitude- and hemisphere-dependent uncertainty of its IW heading model at the point. |
+| `sar_wv_subswath` | WV subswath of the imagette the model placed the point on, 1 or 2. It agrees with the `wv1` or `wv2` in the measurement file name; a point where it or the imagette number disagrees gets null angles. `null` for IW and EW. |
 
 The SAR angle fields (incidence, elevation, heading, heading uncertainty, subswath) are null for a point outside the product footprint, which the library does not extrapolate to (for example an altimeter point kept by the 30 km fallback of section 8), and for every point of a product the library cannot handle. The run goes on in both cases; the products it could not handle are listed in `manifest.sar_angles.errors`.
 
@@ -296,6 +311,32 @@ Which buoys are read:
   a latest file only after both, so no record is read twice. A platform distributed by two
   regions is read once, from `GL`.
 
+### SAR angles of an IW or EW scene
+
+The angles are `s1-geometry`'s `estimate_geometry(corners, mode="IW" or "EW")` at each point,
+from the four corners of the scene footprint in the daily parquet file. The catalogue cuts
+footprints at the dateline and also adds two vertices where a scene crosses longitude 0; the
+pieces are joined and the added vertices dropped, so the library gets the four corners. A
+footprint the catalogue clipped at 85.05° N (EW near the pole) keeps five corners, does not
+invert, and leaves null angles listed in `manifest.sar_angles.errors`.
+
+Checked on 2025-04-15 (S1A + S1C against HY-2B HSCAT) against the `owiIncidenceAngle` and
+`owiHeading` grids of the OCN files the archive holds, at the cell nearest each point (within
+2 km). This was a check only: the Items use the model, never the files.
+
+| Mode | Latitude | Points | Incidence error, median / p95 / max | Heading error, median / p95 / max |
+| --- | --- | --- | --- | --- |
+| IW | below 50° | 986 | 0.72 / 1.90 / 2.15° | 0.32 / 0.89 / 1.41° |
+| IW | 50–65° | 778 | 0.46 / 1.15 / 2.28° | 0.94 / 1.95 / 2.41° |
+| IW | 65° and above | 948 | 0.63 / 2.02 / 4.07° | 1.62 / 3.67 / 6.69° |
+| EW | 50–65° | 1684 | 1.98 / 4.60 / 6.75° | 2.65 / 6.08 / 7.08° |
+| EW | 65° and above | 311 | 2.08 / 5.06 / 8.44° | 4.70 / 15.85 / 21.41° |
+
+The library documents its EW heading as an extrapolation of the IW model, and EW is clearly the
+weaker of the two. On that day 30 of the 48 EW scenes, all poleward of 55°, had points with an
+incidence outside EW's 19–47° swath (from 7.5° to 57.8°); the 11 of them the archive holds are
+part of the check above. The angles are recorded as the model gives them, never clipped.
+
 ### Matching rule
 
 ```
@@ -303,14 +344,16 @@ imagette_start - tolerance < observation_time < imagette_end + tolerance
 ```
 
 For every reference, an observation matches when it is inside this time window and strictly
-inside the footprint of the same imagette. The dateline is not a footprint boundary: a cell at
+inside the footprint of the same imagette. For IW and EW the imagette is the scene: its footprint
+and its `ContentDate` interval. The dateline is not a footprint boundary: a cell at
 179.9° and a cell at -179.9° both match a footprint that straddles it. Quality and ice flags are
 recorded, never used to filter. Where a reference differs:
 
 - **SWOT:** the time test is made on each line's time (shared by the line's pixels) and the
   footprint test on each pixel's centre.
 - **ALTI (CCI and CMEMS):** all points inside the footprint are kept. If none is inside, the
-  tool keeps one point: among those within 30 km of the imagette's OSW cell centre and inside
+  tool keeps one point: among those within 30 km of the imagette's OSW cell centre (for an IW or
+  EW scene, the centroid of its footprint) and inside
   the time window, the one closest in time to the imagette midpoint, over all missions and files.
 - **Buoys:** every record of a buoy inside the footprint and the time window is kept, so a buoy
   reporting every 10 minutes gives about six points per imagette at a 30 minute tolerance.
@@ -321,7 +364,7 @@ recorded, never used to filter. Where a reference differs:
 
 | Key | Points to | Role | Type | Checksum |
 | --- | --- | --- | --- | --- |
-| `sar` | The imagette NetCDF in the SAR archive | `data` | `application/x-netcdf` | none |
+| `sar` | The imagette NetCDF in the SAR archive. For an IW or EW scene, its NetCDF when the archive holds it; otherwise the SAFE folder (no `type`), or the bare SAFE name when no archive was given | `data` | `application/x-netcdf` | none |
 | `sar_manifest` | The SAFE `manifest.safe` | `metadata` | `application/xml` | `sarmatchup:sha256` |
 | `reference_001`, `reference_002`, ... | Each contributing reference granule | `data` | `application/x-netcdf`, `application/gzip` for `.nc.gz`, or `application/vnd.apache.parquet` for the buoy station-years | `sarmatchup:sha256` |
 
@@ -349,8 +392,11 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 15: point values may be text or true/false, and granule groups may carry
-  fields of their own (`reference_platform`).
+  `schema_version` is 16: the manifest gives `sar_mode`, and IW and EW runs write one Item per
+  scene. Since 15, point values may be text or true/false, and granule groups may carry fields
+  of their own (`reference_platform`). In IW and EW runs, `discovery.imagettes_unavailable`
+  lists scenes (one entry per SAFE whose measurement file the archive lacks) and
+  `discovery.safes_skipped` the products whose footprint pieces do not form one polygon.
 
 ## 11. Validation status
 

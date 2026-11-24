@@ -23,13 +23,17 @@ def file_identity(path):
 
 
 def imagette_item(product, imagette, fields, groups, tolerance):
-    """Build one STAC Item: an imagette plus its matched reference points, grouped by granule."""
+    """Build one STAC Item: an imagette plus its matched reference points, grouped by granule.
+
+    For IW and EW the "imagette" is the whole scene; its measurement file is named only when the
+    archive was given and holds it, otherwise the SAR asset links the SAFE.
+    """
     assets = {
         "sar": {
             "href": imagette["href"],
-            "type": "application/x-netcdf",
+            **({"type": "application/x-netcdf"} if imagette["href"].endswith(".nc") else {}),
             "roles": ["data"],
-            "title": imagette["Name"],
+            "title": imagette["Name"] or product["Name"],
         }
     }
     if "manifest_identity" in product:
@@ -91,7 +95,7 @@ def imagette_item(product, imagette, fields, groups, tolerance):
             "start_datetime": imagette["ContentDate"]["Start"],
             "end_datetime": imagette["ContentDate"]["End"],
             "sarmatchup:sar_platform": "sentinel-1" + product["Name"][2].lower(),
-            "sarmatchup:sar_instrument_mode": "WV",
+            "sarmatchup:sar_instrument_mode": fields["mode"],
             "sarmatchup:sar_product_type": fields["producttype"],
             "sarmatchup:sar_safe": product["Name"],
             "sarmatchup:other_instrument": " + ".join(
@@ -115,7 +119,8 @@ def imagette_item(product, imagette, fields, groups, tolerance):
 
 
 def item_filename(item, product):
-    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<PRODUCT>.
+    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<PRODUCT>, or for an IW or EW
+    scene (one Item per SAFE) <SAFE name>__<PRODUCT>.
 
     Example (SAFE name, imagette 4, HY-2B HSCAT at 25 km from KNMI):
     S1B_WV_OCN__2SSV_20200101T011231_20200101T012925_019616_02512F_8F63__IMG004__KNMI_HSCAT_HY2B_25KM
@@ -124,6 +129,8 @@ def item_filename(item, product):
     """
     props = item["properties"]
     stem = props["sarmatchup:sar_safe"].removesuffix(".SAFE")
+    if props["sarmatchup:sar_instrument_mode"] != "WV":
+        return f"{stem}__{product}"
     return f"{stem}__IMG{props['sarmatchup:imagette_index']:03d}__{product}"
 
 

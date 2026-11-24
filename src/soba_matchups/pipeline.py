@@ -14,12 +14,15 @@ from soba_matchups.distance_to_coast import DistanceToCoast
 from soba_matchups.sar_angles import (
     FIELDS as ANGLE_FIELDS,
     add_angles,
+    add_scene_angles,
     library_version,
     subswath_of,
 )
 from soba_matchups.output import file_identity, imagette_item, publish
 from soba_matchups.sar_parquet import (
     IMAGETTE_MAPPING,
+    SCENE_MAPPING,
+    SCENE_TIME_SOURCE,
     TIME_SOURCE,
     discover_parquet,
     verify_parquet_inputs,
@@ -49,6 +52,18 @@ PARQUET_LIMITATIONS = [
     "Imagette centres are polygon centroids; polygon k is paired with imagette number k.",
     "SAFEs with no imagette list, or with polygons and imagettes that disagree, are left out.",
     "Imagettes whose file is not in the archive are matched and listed as unavailable.",
+    "Parquet files and references use SHA256.",
+]
+# IW and EW: the scene comes from the daily parquet files alone (sar_parquet_root is required).
+SCENE_LIMITATIONS = [
+    "SAR metadata comes from the daily parquet files; no SAFE is opened, nothing is fetched.",
+    "One OCN product is one scene and one Item: its footprint (dateline and prime-meridian cut"
+    " pieces joined) and its ContentDate. Points are not tied to a subswath.",
+    "SAR angles are the s1-geometry IW model at each point, from the four footprint corners;"
+    " for EW its heading is a documented extrapolation. A footprint the catalogue clipped (EW"
+    " near 85 N) does not invert and leaves null angles, listed in sar_angles.errors.",
+    "Products whose footprint pieces do not form one polygon are left out and listed.",
+    "Scenes whose measurement file is not in the archive are matched and listed as unavailable.",
     "Parquet files and references use SHA256.",
 ]
 
@@ -134,9 +149,16 @@ def run(recipe):
     start = iso(min(ref["coverage_start"] for ref in refs) - delta - precision)
     end = iso(max(ref["coverage_end"] for ref in refs) + delta + precision)
     from_parquet = recipe.sar_parquet_root is not None
+    # IW and EW are matched per scene (one OCN product, one Item), always from the parquet files.
+    scenes = recipe.sar_mode != "WV"
     if from_parquet:
         products, discovery = discover_parquet(
-            start, end, recipe.sar_missions, recipe.sar_parquet_root, recipe.sar_archive_root
+            start,
+            end,
+            recipe.sar_missions,
+            recipe.sar_parquet_root,
+            recipe.sar_archive_root,
+            recipe.sar_mode,
         )
         verify_inputs = verify_parquet_inputs
     else:
@@ -166,8 +188,10 @@ def run(recipe):
     # Stage 1 tests each whole SAFE; stage 2 tests each imagette on its own footprint and clock.
     for product in products:
         fields = decode_safe_name(product["Name"])
-        if fields["producttype"] != "OCN":
-            raise ValueError("SAR product type does not match the WV OCN discovery request")
+        if fields["producttype"] != "OCN" or fields["mode"] != recipe.sar_mode:
+            raise ValueError(
+                f"SAR product {product['Name']} does not match the {recipe.sar_mode} OCN request"
+            )
         candidates = [
             (
                 ref,
@@ -275,7 +299,12 @@ def run(recipe):
                 for point in group["points"]:
                     flat.append(point)
                     expected.append((imagette["index"], subswath_of(imagette["Name"])))
-        error = add_angles(product["Name"], product.get("WVFootprint"), flat, expected)
+        if recipe.sar_mode == "WV":
+            error = add_angles(product["Name"], product.get("WVFootprint"), flat, expected)
+        else:
+            error = add_scene_angles(
+                product["Name"], product.get("SceneRing"), recipe.sar_mode, flat
+            )
         if error:
             angle_errors.append({"safe": product["Name"], "error": error})
         for imagette, groups in pending:
@@ -289,13 +318,14 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 15,
+        "schema_version": 16,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
         "library_version": __version__,
         "resolved_recipe": recipe.resolved(),
         "recipe_input": file_identity(recipe.path),
+        "sar_mode": recipe.sar_mode,
         "discovery": discovery,
         "reference_coverage": [
             {
@@ -341,14 +371,20 @@ def run(recipe):
         "rules": {
             "policy": adapter.POLICY,
             "imagette_mapping": (
-                IMAGETTE_MAPPING if from_parquet else "local_ocn_geolocation_to_manifest_frame"
+                SCENE_MAPPING
+                if scenes
+                else IMAGETTE_MAPPING
+                if from_parquet
+                else "local_ocn_geolocation_to_manifest_frame"
             ),
             "space": getattr(
                 adapter, "SPACE", "strict individual imagette footprint point containment"
             ),
             "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
             "time_source": (
-                TIME_SOURCE
+                SCENE_TIME_SOURCE
+                if scenes
+                else TIME_SOURCE
                 if from_parquet
                 else "OCN firstMeasurementTime / lastMeasurementTime UTC attributes"
             ),
@@ -365,7 +401,13 @@ def run(recipe):
             **{k: f"{v}; null when unavailable" for k, v in ANGLE_FIELDS.items()},
         },
         "limitations": [
-            *(PARQUET_LIMITATIONS if from_parquet else ARCHIVE_LIMITATIONS),
+            *(
+                SCENE_LIMITATIONS
+                if scenes
+                else PARQUET_LIMITATIONS
+                if from_parquet
+                else ARCHIVE_LIMITATIONS
+            ),
             "sarmatchup:* properties are project-specific, not a registered STAC extension.",
             "No sea-percent, polar, quality or ice filter.",
             "Tolerance is explicitly configured, not scientifically calibrated.",

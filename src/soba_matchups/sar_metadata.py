@@ -142,6 +142,15 @@ def _frames(root):
     return frames
 
 
+class NameTimeMismatch(ValueError):
+    """The SAFE name's start or stop time contradicts the manifest acquisition period.
+
+    ESA has published WV SAFEs whose name carries a placeholder stop time (20000101T000002) while
+    the manifest holds the real one. Discovery skips and lists such a SAFE; every other manifest
+    contradiction still stops the run.
+    """
+
+
 def read_manifest_frames(path: Path) -> list[dict]:
     """Read native frames only, including L1 structural reference manifests."""
     return _frames(ET.parse(path).getroot())
@@ -180,7 +189,10 @@ def _manifest(root, name, mission):
     for native, token in zip((first, last), parts[5:7]):
         named = datetime.strptime(token, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
         if abs((native - named).total_seconds()) > 2:
-            raise ValueError("SAFE filename/manifest acquisition mismatch")
+            raise NameTimeMismatch(
+                "SAFE filename/manifest acquisition mismatch: "
+                f"name {token}, manifest {_iso(native)}"
+            )
     # Datatake and orbit are cross-checked only when the manifest carries them.
     expected_datatake = int(parts[8], 16)
     values = [e.text for e in root.iter() if e.tag.split("}")[-1] == "missionDataTakeID"]
@@ -486,6 +498,7 @@ def discover_local(
         "sar_archive_root": str(archive_root),
         "coverage_scope": "files present in selected local archive directories",
         "imagettes_centre_repaired": [],
+        "safes_skipped": [],
     }
     products, seen = [], set()
     count = 0
@@ -517,7 +530,14 @@ def discover_local(
                     if file_identity(manifest) != identity:
                         raise ValueError(f"Manifest changed during read: {manifest}")
                     provenance["manifest_inputs"].append(identity)
-                    info, acquisition_start, acquisition_end = _manifest(root, safe.name, mission)
+                    # A SAFE whose name times contradict its manifest is left out and listed.
+                    try:
+                        info, acquisition_start, acquisition_end = _manifest(
+                            root, safe.name, mission
+                        )
+                    except NameTimeMismatch as exc:
+                        provenance["safes_skipped"].append({"safe": safe.name, "reason": str(exc)})
+                        continue
                     # Cheap manifest test first; NetCDF files are opened only for overlapping SAFEs.
                     if not (acquisition_start < last and acquisition_end > first):
                         continue
@@ -560,6 +580,12 @@ def discover_local(
         raise ValueError(f"No SAFEs found under searched local OCN archive root: {archive_root}")
     provenance["safes_found"] = count
     provenance["products_selected"] = len(products)
+    if provenance["safes_skipped"]:
+        logger.warning(
+            "%d SAFEs skipped (name times contradict the manifest); listed in the manifest "
+            "discovery.safes_skipped",
+            len(provenance["safes_skipped"]),
+        )
     if provenance["imagettes_centre_repaired"]:
         logger.warning(
             "%d imagette centres taken from the wind grid (OSW centre in no frame); "

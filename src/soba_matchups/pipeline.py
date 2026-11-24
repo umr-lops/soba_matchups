@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from soba_matchups import __version__
-from soba_matchups.adapters import SkippableReference, alti, scat, swot
+from soba_matchups.adapters import SkippableReference, alti, buoy, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.distance_to_coast import DistanceToCoast
 from soba_matchups.sar_angles import (
@@ -36,6 +36,8 @@ from soba_matchups.sar_metadata import (
 ARCHIVE_LIMITATIONS = [
     "Requires extracted L2 OCN SAFEs with manifest.safe and every listed measurement file.",
     "Ambiguous native frame associations fail without suffix fallback.",
+    "A SAFE whose name start/stop time contradicts its manifest (ESA placeholder names) is"
+    " skipped and listed in discovery.safes_skipped; other contradictions fail the run.",
     "An OSW centre in no frame is replaced by the wind-grid mean when that lies in the frame of"
     " the file's number; otherwise the file is skipped and listed.",
     "Reads OSW geolocation and UTC attributes, not wind/spectral arrays; no network.",
@@ -53,7 +55,7 @@ PARQUET_LIMITATIONS = [
 logger = logging.getLogger(__name__)
 
 # One adapter per instrument: it finds the files, reads them and names the point fields.
-ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot, "alti": alti}
+ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot, "alti": alti, "buoy": buoy}
 
 
 def reference_inputs(recipe, skipped=None):
@@ -66,6 +68,9 @@ def reference_inputs(recipe, skipped=None):
     paths = adapter.find_files(recipe)
     if len({p.name for p in paths}) != len(paths):
         raise ValueError("Repeated reference filenames; select one unambiguous product bundle")
+    # An adapter whose files span more than the requested days (buoy station-years) reads them
+    # through a reader bound to the recipe; the others read each file on its own.
+    read = getattr(adapter, "reader", lambda recipe: adapter.read_reference)(recipe)
     references = []
     for path in paths:
         # Hash each granule so the manifest records exactly what was read.
@@ -73,9 +78,7 @@ def reference_inputs(recipe, skipped=None):
         product = (recipe.instrument, recipe.platform, recipe.resolution)
         source, resolution, _ = REFERENCE_PRODUCTS[product]
         try:
-            ref = adapter.read_reference(
-                path, expected_source=source, expected_resolution=resolution
-            )
+            ref = read(path, expected_source=source, expected_resolution=resolution)
         except SkippableReference as exc:
             if skipped is None:
                 raise
@@ -148,7 +151,14 @@ def run(recipe):
     candidate_cells = 0
 
     def number(x, integer=False):
-        """Return a float (an int for flags), or None for NaN so the JSON stays valid."""
+        """Return a float (an int for flags), or None for NaN so the JSON stays valid.
+
+        Text and true/false values (buoy data modes and release marks) pass through as they are.
+        """
+        if x is None or isinstance(x, str):
+            return x
+        if isinstance(x, (bool, np.bool_)):
+            return bool(x)
         if not np.isfinite(x):
             return None
         return int(x) if integer else float(x)
@@ -251,6 +261,8 @@ def run(recipe):
                             "reference_type": adapter.TYPE,
                             "reference_version": ref["version"],
                             "reference_resolution": ref["resolution"],
+                            # Fields an adapter adds per granule (buoys: the platform).
+                            "group_fields": ref.get("group_fields", {}),
                             "points": points,
                         }
                     )
@@ -277,7 +289,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 14,
+        "schema_version": 15,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -358,6 +370,10 @@ def run(recipe):
             "No sea-percent, polar, quality or ice filter.",
             "Tolerance is explicitly configured, not scientifically calibrated.",
             "One Item per matched imagette per fresh run; no cross-run update or enrichment.",
+            *getattr(adapter, "LIMITATIONS", []),
         ],
     }
+    # An adapter that chooses among several sources records what it read and what it left out.
+    if hasattr(adapter, "selection"):
+        manifest["reference_selection"] = adapter.selection(recipe)
     return publish(recipe.output_dir, items, diagnostics, products, manifest)

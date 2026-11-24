@@ -25,7 +25,12 @@ REFERENCE_PRODUCTS = {
     ("karin", "swot", "2km"): ("SWOT KaRIn", "2 km", "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"),
     ("alti", "cci", "l2p"): ("CCI altimeters", "1 Hz", "ESACCI_SEASTATE_L2P"),
     ("alti", "cmems", "l3"): ("CMEMS altimeters", "1 Hz", "CMEMS_WAV_L3_ALTI_VAVH"),
+    # NDBC buoys (NCEI), TAO moorings, and the CMEMS in situ platforms in neither; each file
+    # keeps its own source ("NDBC buoy", "TAO mooring", "CMEMS in situ").
+    ("buoy", "ndbc-tao-cmems", "point"): ("Buoys", "point", "INSITU_NDBC_TAO_CMEMS_WIND"),
 }
+# Recipe keys that only one instrument takes, and that it requires.
+INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy"}
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,7 @@ class Recipe:
     sar_archive_root: Path | None = None
     sar_parquet_root: Path | None = None
     distance_to_coast_file: Path | None = None
+    cmems_insitu_root: Path | None = None
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -60,8 +66,9 @@ def load_recipe(path):
         data = tomllib.load(stream)
     # Reject unknown keys and missing required keys.
     optional = {"sar_archive_root", "sar_parquet_root"}
-    # The distance-to-coast grid is a file, and a run goes on without it.
-    extra = {"distance_to_coast_file"}
+    # The distance-to-coast grid is a file, and a run goes on without it. The CMEMS in situ root
+    # belongs to the buoy reference only (INSTRUMENT_KEYS), checked below.
+    extra = {"distance_to_coast_file", *INSTRUMENT_KEYS}
     required = set(Recipe.__dataclass_fields__) - {"path"} - optional - extra
     unknown = set(data) - required - optional - extra
     if unknown or required - set(data):
@@ -74,6 +81,9 @@ def load_recipe(path):
     product = (data["instrument"], data["platform"], data["resolution"])
     if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
         raise ValueError("Unsupported reference instrument / platform / resolution combination")
+    for key, instrument in INSTRUMENT_KEYS.items():
+        if (key in data) != (data["instrument"] == instrument):
+            raise ValueError(f"{key} is required for instrument {instrument!r} and only for it")
     # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]
@@ -109,7 +119,7 @@ def load_recipe(path):
     # Make every path absolute, relative to the recipe file.
     paths = ["reference_root", "output_dir"]
     inputs = ["reference_root"]
-    for key in sorted(optional & set(data)):
+    for key in sorted((optional | set(INSTRUMENT_KEYS)) & set(data)):
         paths.append(key)
         inputs.append(key)
     for key in paths:

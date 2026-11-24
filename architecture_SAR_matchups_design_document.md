@@ -75,6 +75,7 @@ Product label by recipe:
 | `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_D0` |
 | `alti` / `cci` / `l2p` | `ESACCI_SEASTATE_L2P_V<release>`, for example `ESACCI_SEASTATE_L2P_V5` (all CCI altimeter missions of the root) |
 | `alti` / `cmems` / `l3` | `CMEMS_WAV_L3_ALTI_VAVH` (all CMEMS altimeter missions of the root; no release in the label) |
+| `buoy` / `ndbc-tao-cmems` / `point` | `INSITU_NDBC_TAO_CMEMS_WIND` (NDBC buoys, TAO moorings and the CMEMS in situ buoys in neither) |
 
 The same imagette matched to SWOT is named
 `S1D_WV_OCN__2SSV_20260622T213558_20260622T214335_003354_005E47_1F38__IMG010__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json`.
@@ -161,8 +162,8 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:sar_instrument_mode` | `WV` |
 | `sarmatchup:sar_product_type` | `OCN` |
 | `sarmatchup:sar_safe` | Full parent SAFE name. |
-| `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT` or `SWOT KaRIn`. For the CCI and CMEMS altimeters, the missions of the Item joined by ` + `, for example `Jason-3 altimeter + Sentinel-3 A altimeter`. |
-| `sarmatchup:other_type` | `scatterometer` for ASCAT and HSCAT, `altimeter` for SWOT KaRIn and the CCI and CMEMS altimeters. |
+| `sarmatchup:other_instrument` | Reference source, for example `HY-2B HSCAT` or `SWOT KaRIn`. For the CCI and CMEMS altimeters, the missions of the Item joined by ` + `, for example `Jason-3 altimeter + Sentinel-3 A altimeter`. For buoys, the sources of the Item joined the same way, among `NDBC buoy`, `TAO mooring` and `CMEMS in situ`. |
+| `sarmatchup:other_type` | `scatterometer` for ASCAT and HSCAT, `altimeter` for SWOT KaRIn and the CCI and CMEMS altimeters, `in_situ` for buoys. |
 | `sarmatchup:other_geometry_type` | `MultiPoint`: the reference observations are points, given by `ref_lon` and `ref_lat`, not a swath outline. |
 | `sarmatchup:searching_window_hours` | Time tolerance in hours, applied on each side of the acquisition interval. |
 | `sarmatchup:lib_version` | `soba_matchups` version. |
@@ -185,10 +186,15 @@ Each object in `sarmatchup:matchups` describes one reference granule.
 | --- | --- |
 | `reference_asset` | Key of this granule in `assets`. |
 | `reference_file` | Original granule file name. |
-| `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI and CMEMS, one per reference file; the mission is the file's `platform` attribute, for example `Sentinel-3 A altimeter` (CCI) or `HaiYang-2B altimeter` (CMEMS). |
-| `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. CMEMS: product release from the file's `product_version` attribute and the generation stamp of the name, for example `v6.0_g20241221T050553`. |
-| `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI and CMEMS: `1 Hz`, the sampling of the points. |
+| `reference_source` | Validated `source` attribute (KNMI); `SWOT KaRIn` for SWOT; `<mission> altimeter` for CCI and CMEMS, one per reference file; the mission is the file's `platform` attribute, for example `Sentinel-3 A altimeter` (CCI) or `HaiYang-2B altimeter` (CMEMS). Buoys: `NDBC buoy`, `TAO mooring` or `CMEMS in situ`. |
+| `reference_version` | KNMI: `software_identification_wind` attribute, as a string. SWOT: processing level and version from the file name, for example `PID0_01`. CCI: dataset release from the file's `references` attribute and the `fv` number of the name, for example `v4.0_fv01`. CMEMS: product release from the file's `product_version` attribute and the generation stamp of the name, for example `v6.0_g20241221T050553`. Buoys: the program that wrote the file (`get_ncei_data 0.1.0`, `get_tao_data 0.1.0`), or for CMEMS in situ the channel and format, for example `013_030 history format 2.0`. |
+| `reference_resolution` | KNMI: `pixel_size_on_horizontal` attribute, for example `12.5 km`. SWOT: the recipe's resolution, `2 km`, since the file has no such attribute. CCI and CMEMS: `1 Hz`, the sampling of the points. Buoys: `point`. |
+| `reference_platform` | Buoys only: the station, site or platform code, for example `41046`, `T0N140W`, `6200001`. |
+| `reference_platform_type` | Buoys only: the CMEMS platform type code, `MO` (moored) for NDBC and TAO, and for CMEMS that of the file name, `MO` or `DB` (drifting). |
 | `points` | Matched observations, section 8. |
+
+For buoys a group is one station-year file (NDBC, TAO) or one CMEMS netCDF file, so one platform
+can have two groups in an Item: a CMEMS history file and its monthly file, for example.
 
 ## 8. Points
 
@@ -252,6 +258,44 @@ The SAR angle fields (incidence, elevation, heading, heading uncertainty, subswa
 | `VAVH_UNFILTERED` | Significant wave height, bias corrected, calibrated against buoys (Sepulveda et al., 2015), m. |
 | `WIND_SPEED` | Equivalent 10 m wind speed derived from the altimeter, bias corrected relative to a reference mission, m s-1. |
 
+### Buoy fields (NDBC, TAO, CMEMS in situ)
+
+Every buoy point has every field below. A field a source has no equivalent for is `null`. Values
+are copied as the source gives them: nothing is converted to 10 m and nothing is filtered.
+
+| Field | Meaning | NDBC (NCEI) | TAO | CMEMS in situ |
+| --- | --- | --- | --- | --- |
+| `wind_speed` | Wind speed at the anemometer height, m s-1. | `wind_speed`, as NDBC published it | `wind_speed` (delayed mode where it exists) | `WSPD` at the first depth level holding one, else `hypot(WSPE, WSPN)` |
+| `wind_direction_from` | Direction the wind blows from, degrees clockwise from north. | `wind_direction` | `wind_direction` | `WDIR`, else `WTODIR` + 180, else from `WSPE`/`WSPN` |
+| `anemometer_height` | m above the surface. | `anemometer_height` | `anemometer_height` | `-DEPH` of the level used; `null` for 0 (height lost) or beyond 100 m |
+| `wind_speed_qc`, `wind_direction_qc` | Original integer QC flag; the scale is the source's. | QARTOD: 1 pass, 2 not evaluated, 3 suspect, 4 fail, 9 missing | 0 unknown, 1 good, 2 probably good, 3 questionable, 4 bad, 5 adjusted | OceanSITES/CMEMS: 1 good ... 9 missing |
+| `wind_speed_qc_detail`, `wind_direction_qc_detail` | NDBC test that fired: `"0"` none, else its letter. | ✓ | `null` | `null` |
+| `wind_speed_released`, `wind_direction_released` | `true` when NDBC released the value, `false` when withheld. | ✓ | `null` | `null` |
+| `wind_speed_mode`, `wind_direction_mode` | Data mode. | `null` | `D` delayed, `R` real time | the file's data mode: `R`, `D` or `M` |
+| `wind_speed_withdrawn`, `wind_direction_withdrawn` | `true` for a real-time value the delayed-mode file no longer holds. | `null` | ✓ | `null` |
+| `wind_speed_bias_suspect` | `true` for real-time speeds of a 2020–2025 deployment (NDBC advisory DM 09.26-11). | `null` | ✓ | `null` |
+| `position_source` | How the position was given. | `gps`, `nominal` or `nominal_whole_degree` | `gps` or `nominal` | `precise` (the record's own fix), `record` (its own position) or `file` (the file's single position) |
+| `position_qc` | Position QC flag. | `gps_qc` | `null` | `POSITION_QC` |
+| `position_offset_km` | Distance from the nominal mooring position, km. | ✓ | ✓ | `null` |
+
+Which buoys are read:
+
+- **NDBC:** the station-years of `get_ncei_data` under `<reference_root>/ncei/ncei_concat/wind`.
+  Only buoys: NDBC numbers buoys with digits (`41046`). Land stations, named with letters
+  (`bura1`), are left out and listed in `manifest.reference_selection`.
+- **TAO:** the site-years of `get_tao_data` under `<reference_root>/tao/tao_concat`.
+- **CMEMS in situ:** files of `INSITU_GLO_PHYBGCWAV_DISCRETE_MYNRT_013_030` under the recipe's
+  `cmems_insitu_root` whose index row lists `WSPD` or both `WSPE` and `WSPN`, chosen from the
+  dataset's `index_{history,monthly,latest}.txt`. Only buoys: the `MO` and `DB` types, and of
+  those only platforms whose file states `source` = `moored surface buoy` or
+  `drifting surface float`. `MO` also holds oil platforms, coastal and land masts, lightships
+  and generic `mooring`s (mostly coastal stations), and `DB` ice buoys and `unknown` drifters;
+  all of these are left out, as are ships (`FB`, `TS`), saildrones (`SD`) and tide gauges (`TG`). A platform is left out when its code is an NDBC station id (case-insensitive), a
+  TAO site code, or a TAO or NDBC WMO number, also in its seven-digit CMEMS form (`5200013` is
+  WMO `52013`). A monthly file is read only for records after the platform's history file ends,
+  a latest file only after both, so no record is read twice. A platform distributed by two
+  regions is read once, from `GL`.
+
 ### Matching rule
 
 ```
@@ -268,6 +312,10 @@ recorded, never used to filter. Where a reference differs:
 - **ALTI (CCI and CMEMS):** all points inside the footprint are kept. If none is inside, the
   tool keeps one point: among those within 30 km of the imagette's OSW cell centre and inside
   the time window, the one closest in time to the imagette midpoint, over all missions and files.
+- **Buoys:** every record of a buoy inside the footprint and the time window is kept, so a buoy
+  reporting every 10 minutes gives about six points per imagette at a 30 minute tolerance.
+  Choosing the record nearest the imagette midpoint is a downstream step. `start_date` and
+  `stop_date` select the days the records fall in, not the days the files start on.
 
 ## 9. Assets
 
@@ -275,7 +323,7 @@ recorded, never used to filter. Where a reference differs:
 | --- | --- | --- | --- | --- |
 | `sar` | The imagette NetCDF in the SAR archive | `data` | `application/x-netcdf` | none |
 | `sar_manifest` | The SAFE `manifest.safe` | `metadata` | `application/xml` | `sarmatchup:sha256` |
-| `reference_001`, `reference_002`, ... | Each contributing reference granule | `data` | `application/x-netcdf`, or `application/gzip` for `.nc.gz` | `sarmatchup:sha256` |
+| `reference_001`, `reference_002`, ... | Each contributing reference granule | `data` | `application/x-netcdf`, `application/gzip` for `.nc.gz`, or `application/vnd.apache.parquet` for the buoy station-years | `sarmatchup:sha256` |
 
 Every `href` is an absolute `file:` URI. The reference `href` starts with the recipe's
 `reference_root`, so it names the real file only if `reference_root` is the real path.
@@ -294,6 +342,15 @@ In a container, bind the KNMI tree at its real path and use that path as
   `sar_angles` (the `s1-geometry` version used and the products it could not handle),
   known limitations, and the checksum of every output file. Reference inputs carry
   the `source`, `version` and `resolution` read from the file, not the requested ones.
+  Buoy runs add `reference_selection`: the three source folders, the number of files read from
+  each, the NDBC land stations left out, the number of CMEMS platforms of each non-buoy type
+  (`cmems_types_left_out`), the `MO`/`DB` platforms that are not buoys with their `source`
+  (`cmems_not_buoys_left_out`), the CMEMS platforms already read elsewhere with the reason
+  (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
+  platforms read from another region, and the files the CMEMS index lists but the disk lacks.
+  Files with no wind record in the requested days are in `reference_files_skipped`.
+  `schema_version` is 15: point values may be text or true/false, and granule groups may carry
+  fields of their own (`reference_platform`).
 
 ## 11. Validation status
 

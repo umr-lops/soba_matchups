@@ -1,9 +1,7 @@
 version: 2
+# Python dependencies are locked in pixi.lock, which Dependabot cannot update: refresh them
+# with `pixi update` and commit the lock (CI installs with --locked).
 updates:
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
   - package-ecosystem: pre-commit
     directory: /
     schedule:

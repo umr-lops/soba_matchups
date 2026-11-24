@@ -37,8 +37,47 @@ include = [
     "architecture_SAR_matchups_design_document.md",
     "LICENSE",
     "pyproject.toml",
-    "environment.yml",
+    "pixi.lock",
 ]
+
+[tool.pixi.workspace]
+# The environment manager: `pixi install`, then `pixi run test` / `pixi run lint`.
+# Runtime libraries come from conda-forge; the package itself is installed editable
+# from this checkout, and s1-geometry (not on conda-forge) from PyPI through its
+# [project] dependency. The dev tools are the `dev` extra above, so their pins live
+# in one place.
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+numpy = ">=1.26,<3"
+xarray = ">=2024.1"
+shapely = ">=2"
+netcdf4 = ">=1.7,<2"
+pyarrow = ">=15"
+
+[tool.pixi.pypi-dependencies]
+soba_matchups = { path = ".", editable = true }
+
+[tool.pixi.feature.docs.dependencies]
+python = "3.12.*"
+sphinx = "==9.1.1"
+
+[tool.pixi.feature.docs.tasks]
+docs = "sphinx-build -W -b html docs docs/_build/html"
+
+[tool.pixi.environments]
+# default: runtime + dev tools (tests, lint, build). prod: runtime only, what the Apptainer
+# image ships. docs: Sphinx alone (the docs do not import the package).
+default = { features = ["dev"], solve-group = "default" }
+prod = { features = [], solve-group = "default" }
+docs = { features = ["docs"], no-default-feature = true }
+
+[tool.pixi.tasks]
+test = "python -m pytest"
+lint = "pre-commit run --all-files"
+build = "python -m build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

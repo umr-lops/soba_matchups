@@ -33,7 +33,7 @@ def item():
         }
     ]
     return imagette_item(
-        product, imagette, {"polarization": "VV", "producttype": "OCN"}, groups, 60
+        product, imagette, {"mode": "WV", "polarization": "VV", "producttype": "OCN"}, groups, 60
     )
 
 

@@ -144,3 +144,8 @@ output_dir = "run"
     recipe.write_text(base + 'sar_parquet_root = "parquet"\nproduct_type = "L1"\n')
     with pytest.raises(ValueError, match="product_type must be one of"):
         load_recipe(recipe)
+    # SLC is read per WV imagette only; IW, EW and SM scenes are OCN.
+    scene = 'sar_parquet_root = "parquet"\nproduct_type = "SLC"\nsar_mode = "IW"\n'
+    recipe.write_text(base + scene)
+    with pytest.raises(ValueError, match="only read for sar_mode WV"):
+        load_recipe(recipe)

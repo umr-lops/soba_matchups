@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
-    r"S1[ABCD]_WV_(?P<producttype>OCN|SLC)__"
-    r"(?P<level>[12])[A-Z](?P<pol>SV|SH)_"
+    r"S1[ABCD]_(?P<mode>WV|IW|EW|S[1-6])_(?P<producttype>OCN|SLC)__"
+    r"(?P<level>[12])[A-Z](?P<pol>SV|SH|DV|DH)_"
     r"\d{8}T\d{6}_\d{8}T\d{6}_\d{6}_[0-9A-F]{6}_[0-9A-F]{4}\.SAFE"
 )
 _NC_PATTERN = re.compile(
@@ -34,12 +34,22 @@ _GML = "{http://www.opengis.net/gml}"
 
 
 def decode_safe_name(name):
-    """Return polarization and product type of a WV SAFE name; reject any other name."""
+    """Return mode, polarization and product type of a WV, IW, EW or SM SAFE name; reject others.
+
+    An SM (StripMap) name carries its beam, S1 to S6, where the others carry the mode; the mode
+    returned is then SM. polarization is the co-polarization (VV or HH), the one an OCN product
+    is processed on; a dual-polarization product (DV, DH) also has its cross-polarization channel.
+    """
     match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
-    if match is None or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]:
-        raise ValueError(f"Unsupported Sentinel-1 WV SAFE name: {name!r}")
+    if (
+        match is None
+        or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]
+        or (match["mode"] == "WV" and match["pol"][0] == "D")
+    ):
+        raise ValueError(f"Unsupported Sentinel-1 WV/IW/EW/SM SAFE name: {name!r}")
     return {
-        "polarization": {"SV": "VV", "SH": "HH"}[match["pol"]],
+        "mode": "SM" if match["mode"][0] == "S" else match["mode"],
+        "polarization": "VV" if match["pol"][1] == "V" else "HH",
         "producttype": match["producttype"],
     }
 
@@ -159,7 +169,7 @@ def read_manifest_frames(path: Path) -> list[dict]:
 def _manifest(root, name, mission):
     """Check the manifest agrees with the SAFE name; return (name info, start, stop)."""
     info = decode_safe_name(name)
-    if info["producttype"] != "OCN" or name[:3] != mission:
+    if info["mode"] != "WV" or info["producttype"] != "OCN" or name[:3] != mission:
         raise ValueError("Production discovery requires requested mission L2 WV OCN SAFE")
     objects = _objects(root)
     try:

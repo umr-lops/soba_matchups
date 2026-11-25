@@ -7,6 +7,8 @@ import re
 import numpy as np
 import xarray as xr
 
+from soba_matchups.adapters import scat
+
 POLICY = "alti_local_ocn_imagette_v2"
 TYPE = "altimeter"
 # Radius around the OSW cell centre of the imagette, for imagettes that no point falls inside.
@@ -163,8 +165,19 @@ def _in_window(product, reference, tolerance_minutes):
 def match_safe(product, reference, tolerance_minutes):
     """Return the points in the SAFE's time window and within the radius of one of its imagettes.
 
-    This is the cheap first pass: a point that no imagette could take is dropped here.
+    This is the cheap first pass: a point that no imagette could take is dropped here. An IW, EW
+    or SM scene is far larger than the radius, so for a scene the points inside its footprint
+    are kept as well, as the matching rule keeps every point inside.
     """
+    if "SceneRing" in product:
+        near = _near_imagettes(product, reference, tolerance_minutes)
+        inside = scat.match_cells(product, reference, tolerance_minutes)
+        return np.union1d(near, inside)
+    return _near_imagettes(product, reference, tolerance_minutes)
+
+
+def _near_imagettes(product, reference, tolerance_minutes):
+    """Return the points in the SAFE's time window and within the radius of an imagette centre."""
     inside = _in_window(product, reference, tolerance_minutes)
     indices = np.flatnonzero(inside & np.isfinite(reference["lon"]) & np.isfinite(reference["lat"]))
     centres = np.array([row["Centre"] for row in product["Imagettes"]], dtype="float64")

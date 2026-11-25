@@ -33,6 +33,9 @@ REFERENCE_PRODUCTS = {
 SAR_PRODUCT_TYPES = ("OCN", "SLC")
 # Recipe keys that only one instrument takes, and that it requires.
 INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy"}
+# Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW, EW
+# and SM (StripMap, beams S1 to S6) per scene (one OCN product), from the daily parquet files only.
+SAR_MODES = ("WV", "IW", "EW", "SM")
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ class Recipe:
     distance_to_coast_file: Path | None = None
     cmems_insitu_root: Path | None = None
     product_type: str = "OCN"
+    sar_mode: str = "WV"
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -71,7 +75,7 @@ def load_recipe(path):
     optional = {"sar_archive_root", "sar_parquet_root"}
     # The distance-to-coast grid is a file, and a run goes on without it. The CMEMS in situ root
     # belongs to the buoy reference only (INSTRUMENT_KEYS), checked below.
-    extra = {"distance_to_coast_file", "product_type", *INSTRUMENT_KEYS}
+    extra = {"distance_to_coast_file", "product_type", "sar_mode", *INSTRUMENT_KEYS}
     required = set(Recipe.__dataclass_fields__) - {"path"} - optional - extra
     unknown = set(data) - required - optional - extra
     if unknown or required - set(data):
@@ -94,6 +98,16 @@ def load_recipe(path):
     for key, instrument in INSTRUMENT_KEYS.items():
         if (key in data) != (data["instrument"] == instrument):
             raise ValueError(f"{key} is required for instrument {instrument!r} and only for it")
+    mode = data.setdefault("sar_mode", "WV")
+    if mode not in SAR_MODES:
+        raise ValueError(f"sar_mode must be one of {list(SAR_MODES)}")
+    # IW, EW and SM scenes are described by the daily parquet files alone; the archive, if
+    # given, is only asked whether each product's measurement file exists.
+    if mode != "WV" and "sar_parquet_root" not in data:
+        raise ValueError(f"sar_mode {mode!r} needs sar_parquet_root (the daily parquet files)")
+    # SLC is read per WV imagette; IW, EW and SM scenes are OCN products only.
+    if mode != "WV" and data["product_type"] != "OCN":
+        raise ValueError(f"product_type {data['product_type']!r} is only read for sar_mode WV")
     # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]

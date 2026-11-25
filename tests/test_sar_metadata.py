@@ -133,7 +133,7 @@ def test_whole_second_nc_header_can_precede_fractional_manifest_start(tmp_path):
 
 
 def test_safe_fields_preserved():
-    assert sar.decode_safe_name(NAME) == {"polarization": "VV", "producttype": "OCN"}
+    assert sar.decode_safe_name(NAME) == {"mode": "WV", "polarization": "VV", "producttype": "OCN"}
     assert sar.decode_safe_name(NAME.replace("OCN__2", "SLC__1"))["producttype"] == "SLC"
 
 

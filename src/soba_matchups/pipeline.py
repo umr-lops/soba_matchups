@@ -136,7 +136,12 @@ def run(recipe):
     from_parquet = recipe.sar_parquet_root is not None
     if from_parquet:
         products, discovery = discover_parquet(
-            start, end, recipe.sar_missions, recipe.sar_parquet_root, recipe.sar_archive_root
+            start,
+            end,
+            recipe.sar_missions,
+            recipe.sar_parquet_root,
+            recipe.sar_archive_root,
+            recipe.product_type,
         )
         verify_inputs = verify_parquet_inputs
     else:
@@ -166,8 +171,10 @@ def run(recipe):
     # Stage 1 tests each whole SAFE; stage 2 tests each imagette on its own footprint and clock.
     for product in products:
         fields = decode_safe_name(product["Name"])
-        if fields["producttype"] != "OCN":
-            raise ValueError("SAR product type does not match the WV OCN discovery request")
+        if fields["producttype"] != recipe.product_type:
+            raise ValueError(
+                f"SAR product type does not match the WV {recipe.product_type} discovery request"
+            )
         candidates = [
             (
                 ref,

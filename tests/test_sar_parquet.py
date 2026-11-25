@@ -271,3 +271,101 @@ def test_a_run_with_only_the_parquet_folder_matches_the_run_with_both(local_reci
         x = json.loads(item.read_text())
         y = json.loads((root / "only/items" / item.name).read_text())
         assert x["id"] == y["id"] and point_ids(x) == point_ids(y)
+
+
+def as_slc(row):
+    """The SLC twin of an OCN test row: SLC SAFE name, TIFF imagette names, same footprint."""
+    imagettes = json.loads(row["WVImagettes"])
+    for item in imagettes:
+        item["Name"] = item["Name"].replace("-ocn-", "-slc-").replace(".nc", ".tiff")
+    name = row["Name"].replace("_WV_OCN__2S", "_WV_SLC__1S")
+    return dict(row, Name=name, WVImagettes=json.dumps(imagettes))
+
+
+def test_a_run_reads_one_product_type_and_never_mixes_them(tmp_path):
+    slc = as_slc(ORDINARY)
+    day = find(ORDINARY)[0]
+    write_day(tmp_path / "parquet", day, [ORDINARY, slc])
+    window = (f"{day}T00:00:00Z", f"{day}T23:59:59Z", ALL_MISSIONS, tmp_path / "parquet")
+    ocn, prov_ocn = sp.discover_parquet(*window)
+    assert [p["Name"] for p in ocn] == [ORDINARY["Name"]] and prov_ocn["product_type"] == "OCN"
+    both, prov_slc = sp.discover_parquet(*window, None, "SLC")
+    assert [p["Name"] for p in both] == [slc["Name"]] and prov_slc["product_type"] == "SLC"
+    assert [i["Name"] for i in both[0]["Imagettes"]] == [
+        i["Name"] for i in json.loads(slc["WVImagettes"])
+    ]
+    assert all(i["Name"].endswith(".tiff") for i in both[0]["Imagettes"])
+
+
+def test_the_slc_archive_folder_is_the_level_1_one(tmp_path):
+    slc = as_slc(ORDINARY)["Name"]
+    folder = sp._safe_folder(tmp_path, slc, "SLC")
+    assert folder.relative_to(tmp_path).parts[:3] == (
+        f"sentinel-1{slc[2].lower()}",
+        "L1",
+        "WV",
+    )
+    assert folder.parts[-4] == slc[:3] + "_WV_SLC__1S"
+    assert sp._safe_folder(tmp_path, ORDINARY["Name"]).parts[-6:-4] == ("L2", "WV")
+
+
+def test_slc_imagettes_are_looked_for_in_the_slc_archive(tmp_path):
+    slc = as_slc(ORDINARY)
+    day = find(ORDINARY)[0]
+    write_day(tmp_path / "parquet", day, [slc])
+    folder = sp._safe_folder(tmp_path / "esa", slc["Name"], "SLC") / "measurement"
+    folder.mkdir(parents=True)
+    first = json.loads(slc["WVImagettes"])[0]["Name"]
+    (folder / first).write_bytes(b"")
+    products, prov = sp.discover_parquet(
+        f"{day}T00:00:00Z",
+        f"{day}T23:59:59Z",
+        ALL_MISSIONS,
+        tmp_path / "parquet",
+        tmp_path / "esa",
+        "SLC",
+    )
+    assert [i["available"] for i in products[0]["Imagettes"]] == [True, False]
+    assert products[0]["Imagettes"][0]["href"].endswith(first)
+
+
+def matched(item):
+    """Return the sorted (lon, lat, time) of every point of an Item."""
+    groups = item["properties"]["sarmatchup:matchups"]
+    return sorted(
+        (p["ref_lon"], p["ref_lat"], p["ref_time_utc"]) for g in groups for p in g["points"]
+    )
+
+
+def test_a_full_slc_run_gives_tiff_assets_and_the_same_matches_as_ocn(local_recipe):
+    from soba_matchups.cli import main
+    from tests.conftest import SAFE
+
+    parquet = synthetic_parquet(local_recipe)
+    day = "2026-06-29"
+    row = pq.read_table(parquet / f"s1_{day}.parquet").to_pylist()[0]
+    slc = as_slc({c: row[c] for c in sp.COLUMNS})
+    slc["Id"] = "synthetic-slc"
+    write_day(parquet, day, [row, slc])
+
+    def run(product_type, folder):
+        recipe = local_recipe.parent / f"recipe_{product_type}.toml"
+        text = local_recipe.read_text().replace('output_dir = "result"', f'output_dir = "{folder}"')
+        recipe.write_text(
+            text.replace('sar_archive_root = "esa"\n', "")
+            + f'sar_parquet_root = "{parquet}"\nproduct_type = "{product_type}"\n'
+        )
+        assert main(["run", "--recipe", str(recipe)]) == 0
+        items = sorted((local_recipe.parent / folder / "items").glob("*.json"))
+        return [json.loads(p.read_text()) for p in items]
+
+    ocn, slc_items = run("OCN", "out_ocn"), run("SLC", "out_slc")
+    assert ocn and len(ocn) == len(slc_items)
+    assert {i["properties"]["sarmatchup:sar_product_type"] for i in slc_items} == {"SLC"}
+    assert {i["assets"]["sar"]["type"] for i in slc_items} == {"image/tiff"}
+    assert {i["assets"]["sar"]["type"] for i in ocn} == {"application/x-netcdf"}
+    # The record ids hash the SAFE name, so they differ by type; the matched points do not.
+    assert [matched(i) for i in slc_items] == [matched(i) for i in ocn]
+    assert SAFE.replace("_WV_OCN__2S", "_WV_SLC__1S") in {
+        i["properties"]["sarmatchup:sar_safe"] for i in slc_items
+    }

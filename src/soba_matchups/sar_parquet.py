@@ -30,7 +30,13 @@ COLUMNS = ["Name", "Id", "ContentDate", "GeoFootprint", "WVImagettes"]
 CUT_EDGE_TOLERANCE = 1e-6
 # Largest latitude difference, in degrees, between the two ends of a cut shared by two halves.
 CUT_LATITUDE_TOLERANCE = 1e-3
-_WV_OCN = re.compile(r"S1[ABCD]_WV_OCN__2[A-Z]")
+# The SAFE name of each product type read: WV L2 OCN or WV L1 SLC.
+_WV_PRODUCT = {
+    "OCN": re.compile(r"S1[ABCD]_WV_OCN__2[A-Z]"),
+    "SLC": re.compile(r"S1[ABCD]_WV_SLC__1[A-Z]"),
+}
+# Archive folder of each type: level folder and product folder.
+_ARCHIVE_FOLDER = {"OCN": ("L2", "_WV_OCN__2S"), "SLC": ("L1", "_WV_SLC__1S")}
 
 
 def _rings(footprint):
@@ -102,16 +108,17 @@ def _geometry(rings):
     return mapping(shapes[0] if len(shapes) == 1 else unary_union(shapes))
 
 
-def _safe_folder(archive_root, name):
-    """Return the archive folder of a WV OCN SAFE (sentinel-1x/L2/WV/<S1x>_WV_OCN__2S/year/day)."""
+def _safe_folder(archive_root, name, product_type="OCN"):
+    """Return the archive folder of a WV SAFE (sentinel-1x/L2/WV/<S1x>_WV_OCN__2S/year/day)."""
+    level, folder = _ARCHIVE_FOLDER[product_type]
     mission = name[:3]
     start = datetime.strptime(name.split("_")[5], "%Y%m%dT%H%M%S")
     return (
         archive_root
         / ("sentinel-1" + mission[-1].lower())
-        / "L2"
+        / level
         / "WV"
-        / (mission + "_WV_OCN__2S")
+        / (mission + folder)
         / start.strftime("%Y/%j")
         / name
     )
@@ -125,7 +132,7 @@ def _read_day(path):
     return pq.read_table(path, columns=COLUMNS).to_pylist()
 
 
-def _product(row, archive_root):
+def _product(row, archive_root, product_type="OCN"):
     """Build the product record of one parquet row, with its imagettes and their availability."""
     name = row["Name"]
     listed = json.loads(row["WVImagettes"])
@@ -141,7 +148,7 @@ def _product(row, archive_root):
     if numbers != list(range(1, len(numbers) + 1)):
         raise ValueError("Imagette numbers are not 1..N")
     product_id = "local_" + hashlib.sha256(name.encode()).hexdigest()
-    folder = _safe_folder(archive_root, name) if archive_root is not None else None
+    folder = _safe_folder(archive_root, name, product_type) if archive_root is not None else None
     present = (
         {p.name for p in (folder / "measurement").iterdir()}
         if folder is not None and (folder / "measurement").is_dir()
@@ -191,8 +198,11 @@ def discover_parquet(
     missions: tuple[str, ...],
     parquet_root: Path,
     sar_archive_root: Path | None = None,
+    product_type: str = "OCN",
 ) -> tuple[list[dict], dict]:
-    """Read the daily parquet files of the covered days and return the WV OCN products to match.
+    """Read the daily parquet files of the covered days and return the WV products to match.
+
+    product_type is OCN or SLC: a run reads one type and never mixes them.
 
     Products with no imagette list, and products whose polygons and imagettes disagree, are left
     out and named in the returned provenance. Imagette files absent from the archive are kept,
@@ -208,6 +218,7 @@ def discover_parquet(
         "missing_files": [],
         "coverage": {"start": start, "end": end},
         "missions": sorted(set(missions)),
+        "product_type": product_type,
         "sar_parquet_root": str(parquet_root),
         "sar_archive_root": None if sar_archive_root is None else str(sar_archive_root),
         "coverage_scope": "products listed in the selected daily parquet files",
@@ -226,7 +237,11 @@ def discover_parquet(
             provenance["parquet_inputs"].append(file_identity(path))
             for row in _read_day(path):
                 name = row["Name"]
-                if not _WV_OCN.match(name) or name[:3] not in missions or name in seen:
+                if (
+                    not _WV_PRODUCT[product_type].match(name)
+                    or name[:3] not in missions
+                    or name in seen
+                ):
                     continue
                 seen.add(name)
                 count += 1
@@ -239,7 +254,7 @@ def discover_parquet(
                     )
                     continue
                 try:
-                    product, unavailable = _product(row, sar_archive_root)
+                    product, unavailable = _product(row, sar_archive_root, product_type)
                 except (ValueError, KeyError, TypeError) as exc:
                     provenance["safes_skipped"].append({"safe": name, "reason": str(exc)})
                     continue

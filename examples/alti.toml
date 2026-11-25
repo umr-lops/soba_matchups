@@ -10,4 +10,8 @@ stop_date = "2020-01-02"  # Exclusive; selects the days the altimeter files star
 sar_missions = ["S1A", "S1B"]
 time_tolerance_minutes = 30
 sar_archive_root = "/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa"
+# The CDSE daily metadata (s1_YYYY-MM-DD.parquet). When set, the SAR side is read from it and
+# the archive is only listed, for the file links and for what is missing. Needed for SLC.
+sar_parquet_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/metadata_cdse_sentinel1/daily_parquet_files_v2"
+# product_type = "OCN"  # The default; "SLC" reads the Level-1 WV SLC products (needs sar_parquet_root).
 output_dir = "../runs/alti-local-001"

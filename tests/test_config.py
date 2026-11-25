@@ -115,3 +115,32 @@ output_dir = "run"
     recipe.write_text(base + 'sar_archive_root = "esa"\nsar_parquet_root = "parquet"\n')
     config = load_recipe(recipe)
     assert config.sar_archive_root and config.sar_parquet_root
+
+
+def test_product_type_defaults_to_ocn_and_slc_needs_the_parquet_folder(tmp_path):
+    from soba_matchups.config import load_recipe
+
+    base = """instrument = "hscat"
+platform = "hy-2b"
+resolution = "25km"
+reference_root = "reference"
+start_date = "2020-01-10"
+stop_date = "2020-01-11"
+sar_missions = ["S1A"]
+time_tolerance_minutes = 60
+output_dir = "run"
+"""
+    (tmp_path / "reference").mkdir()
+    (tmp_path / "parquet").mkdir()
+    (tmp_path / "esa").mkdir()
+    recipe = tmp_path / "r.toml"
+    recipe.write_text(base + 'sar_archive_root = "esa"\n')
+    assert load_recipe(recipe).product_type == "OCN"
+    recipe.write_text(base + 'sar_archive_root = "esa"\nproduct_type = "SLC"\n')
+    with pytest.raises(ValueError, match="SLC needs sar_parquet_root"):
+        load_recipe(recipe)
+    recipe.write_text(base + 'sar_parquet_root = "parquet"\nproduct_type = "SLC"\n')
+    assert load_recipe(recipe).product_type == "SLC"
+    recipe.write_text(base + 'sar_parquet_root = "parquet"\nproduct_type = "L1"\n')
+    with pytest.raises(ValueError, match="product_type must be one of"):
+        load_recipe(recipe)

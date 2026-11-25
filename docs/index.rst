@@ -44,17 +44,19 @@ archive is used only to check which imagette files exist. The manifest lists the
 out (no imagette list, or polygons and imagettes that disagree) and the imagettes whose file is
 not in the archive, under ``discovery``.
 
-IW and EW
----------
+IW, EW and SM
+-------------
 
-Set ``sar_mode = "IW"`` or ``"EW"`` (the default is ``"WV"``) to match IW or EW OCN products
-instead (``examples/hscat_iw.toml``). These read the SAR side from the daily parquet files only,
+Set ``sar_mode = "IW"``, ``"EW"`` or ``"SM"`` (the default is ``"WV"``) to match IW, EW or
+StripMap OCN products instead; every example recipe lists the key. These read the SAR side from
+the daily parquet files only,
 so ``sar_parquet_root`` is required; ``sar_archive_root``, if set, is asked only which
-measurement file each SAFE holds. An IW or EW product is one scene: one Item per matched SAFE,
+measurement file each SAFE holds. An IW, EW or SM product is one scene: one Item per matched SAFE,
 named ``<SAFE>__<PRODUCT>.json``, from the product's footprint and ``ContentDate``. The SAR
 angles come from ``s1-geometry`` at each point; its EW model is markedly rougher than its IW
-one at high latitude (see the design document). SM is not supported: the current daily files
-have no SM products.
+one at high latitude (see the design document). Every mode reads ``daily_parquet_files_v2``,
+which does not list SM products yet (its producer drops them): until it does, an SM run finds no
+product and warns in the log and in ``discovery.warning``.
 
 Reference products
 ------------------

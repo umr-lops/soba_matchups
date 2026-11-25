@@ -31,9 +31,9 @@ REFERENCE_PRODUCTS = {
 }
 # Recipe keys that only one instrument takes, and that it requires.
 INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy"}
-# Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW and
-# EW per scene (one OCN product), from the daily parquet files only.
-SAR_MODES = ("WV", "IW", "EW")
+# Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW, EW
+# and SM (StripMap, beams S1 to S6) per scene (one OCN product), from the daily parquet files only.
+SAR_MODES = ("WV", "IW", "EW", "SM")
 
 
 @dataclass(frozen=True)
@@ -91,8 +91,8 @@ def load_recipe(path):
     mode = data.setdefault("sar_mode", "WV")
     if mode not in SAR_MODES:
         raise ValueError(f"sar_mode must be one of {list(SAR_MODES)}")
-    # IW and EW scenes are described by the daily parquet files alone; the archive, if given,
-    # is only asked whether each product's measurement file exists.
+    # IW, EW and SM scenes are described by the daily parquet files alone; the archive, if
+    # given, is only asked whether each product's measurement file exists.
     if mode != "WV" and "sar_parquet_root" not in data:
         raise ValueError(f"sar_mode {mode!r} needs sar_parquet_root (the daily parquet files)")
     # Dates may be TOML dates or exact YYYY-MM-DD strings.

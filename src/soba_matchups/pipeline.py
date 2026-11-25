@@ -54,18 +54,45 @@ PARQUET_LIMITATIONS = [
     "Imagettes whose file is not in the archive are matched and listed as unavailable.",
     "Parquet files and references use SHA256.",
 ]
-# IW and EW: the scene comes from the daily parquet files alone (sar_parquet_root is required).
+# IW, EW, SM: the scene comes from the daily parquet files alone (sar_parquet_root is required).
 SCENE_LIMITATIONS = [
     "SAR metadata comes from the daily parquet files; no SAFE is opened, nothing is fetched.",
     "One OCN product is one scene and one Item: its footprint (dateline and prime-meridian cut"
     " pieces joined) and its ContentDate. Points are not tied to a subswath.",
-    "SAR angles are the s1-geometry IW model at each point, from the four footprint corners;"
-    " for EW its heading is a documented extrapolation. A footprint the catalogue clipped (EW"
-    " near 85 N) does not invert and leaves null angles, listed in sar_angles.errors.",
+    "The pass direction comes from the motion of the datatake's consecutive slices, else from"
+    " the catalogue orbitDirection; disagreements are listed in"
+    " discovery.orbit_direction_corrected. A direction from the catalogue alone (a lone slice,"
+    " or near the turning latitude) is not checked: if it is wrong, near and far range swap and"
+    " the angles are wrong with no warning. Those products are listed in"
+    " discovery.orbit_direction_from_catalogue, and each Item gives sar_orbit_direction_source.",
+    "The last slice of a datatake past the turning latitude takes its direction from its previous"
+    " step alone, which can be the other side of the turn.",
+    "SAR angles are s1-geometry's at each point: heading from the latitude and the pass"
+    " direction (the IW model, a documented extrapolation for EW and SM); incidence and"
+    " elevation from the four corners in the library's standard order for that direction (for"
+    " SM the beam's specified bands). Incidence and elevation are left null when the library"
+    " reads another direction from those corners, cannot invert them, measures a swath more than"
+    " 10% off the scene's width, or the footprint is not four corners. Without any direction the"
+    " footprint is read as it is, and a turning reading gives no angles. All those products are"
+    " listed in sar_angles.errors.",
+    "daily_parquet_files_v2 does not list SM products yet (its producer drops them): an SM run"
+    " on it finds none and says so in discovery.warning.",
     "Products whose footprint pieces do not form one polygon are left out and listed.",
     "Scenes whose measurement file is not in the archive are matched and listed as unavailable.",
     "Parquet files and references use SHA256.",
 ]
+
+# Per SAR source: how imagettes are tied to footprints, where their times come from, and the
+# known limitations copied into the manifest.
+SOURCE_RULES = {
+    "archive": (
+        "local_ocn_geolocation_to_manifest_frame",
+        "OCN firstMeasurementTime / lastMeasurementTime UTC attributes",
+        ARCHIVE_LIMITATIONS,
+    ),
+    "parquet": (IMAGETTE_MAPPING, TIME_SOURCE, PARQUET_LIMITATIONS),
+    "scenes": (SCENE_MAPPING, SCENE_TIME_SOURCE, SCENE_LIMITATIONS),
+}
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +176,10 @@ def run(recipe):
     start = iso(min(ref["coverage_start"] for ref in refs) - delta - precision)
     end = iso(max(ref["coverage_end"] for ref in refs) + delta + precision)
     from_parquet = recipe.sar_parquet_root is not None
-    # IW and EW are matched per scene (one OCN product, one Item), always from the parquet files.
-    scenes = recipe.sar_mode != "WV"
+    # IW, EW and SM are matched per scene (one OCN product, one Item), from the parquet files.
+    source = "scenes" if recipe.sar_mode != "WV" else "parquet" if from_parquet else "archive"
+    mapping, time_source, sar_limitations = SOURCE_RULES[source]
+    unit = "scene" if source == "scenes" else "imagette"
     if from_parquet:
         products, discovery = discover_parquet(
             start,
@@ -303,7 +332,11 @@ def run(recipe):
             error = add_angles(product["Name"], product.get("WVFootprint"), flat, expected)
         else:
             error = add_scene_angles(
-                product["Name"], product.get("SceneRing"), recipe.sar_mode, flat
+                product["Name"],
+                product.get("SceneRing"),
+                recipe.sar_mode,
+                flat,
+                product.get("OrbitDirection"),
             )
         if error:
             angle_errors.append({"safe": product["Name"], "error": error})
@@ -370,24 +403,12 @@ def run(recipe):
         "source_code": [file_identity(p) for p in sorted(Path(__file__).parent.rglob("*.py"))],
         "rules": {
             "policy": adapter.POLICY,
-            "imagette_mapping": (
-                SCENE_MAPPING
-                if scenes
-                else IMAGETTE_MAPPING
-                if from_parquet
-                else "local_ocn_geolocation_to_manifest_frame"
-            ),
+            "imagette_mapping": mapping,
             "space": getattr(
-                adapter, "SPACE", "strict individual imagette footprint point containment"
+                adapter, "SPACE", f"strict individual {unit} footprint point containment"
             ),
-            "time": "strict imagette start - tolerance < cell time < imagette end + tolerance",
-            "time_source": (
-                SCENE_TIME_SOURCE
-                if scenes
-                else TIME_SOURCE
-                if from_parquet
-                else "OCN firstMeasurementTime / lastMeasurementTime UTC attributes"
-            ),
+            "time": f"strict {unit} start - tolerance < cell time < {unit} end + tolerance",
+            "time_source": time_source,
             "candidate_padding_seconds": OCN_HEADER_PRECISION_SECONDS,
             "header_precision": "whole-second NC headers use outward-rounded manifest bounds",
             "time_tolerance_minutes": recipe.time_tolerance_minutes,
@@ -401,13 +422,7 @@ def run(recipe):
             **{k: f"{v}; null when unavailable" for k, v in ANGLE_FIELDS.items()},
         },
         "limitations": [
-            *(
-                SCENE_LIMITATIONS
-                if scenes
-                else PARQUET_LIMITATIONS
-                if from_parquet
-                else ARCHIVE_LIMITATIONS
-            ),
+            *sar_limitations,
             "sarmatchup:* properties are project-specific, not a registered STAC extension.",
             "No sea-percent, polar, quality or ice filter.",
             "Tolerance is explicitly configured, not scientifically calibrated.",

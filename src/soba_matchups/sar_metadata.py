@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
-    r"S1[ABCD]_(?P<mode>WV|IW|EW)_(?P<producttype>OCN|SLC)__"
+    r"S1[ABCD]_(?P<mode>WV|IW|EW|S[1-6])_(?P<producttype>OCN|SLC)__"
     r"(?P<level>[12])[A-Z](?P<pol>SV|SH|DV|DH)_"
     r"\d{8}T\d{6}_\d{8}T\d{6}_\d{6}_[0-9A-F]{6}_[0-9A-F]{4}\.SAFE"
 )
@@ -34,10 +34,11 @@ _GML = "{http://www.opengis.net/gml}"
 
 
 def decode_safe_name(name):
-    """Return mode, polarization and product type of a WV, IW or EW SAFE name; reject any other.
+    """Return mode, polarization and product type of a WV, IW, EW or SM SAFE name; reject others.
 
-    polarization is the co-polarization (VV or HH), the one an OCN product is processed on; a
-    dual-polarization product (DV, DH) also has its cross-polarization channel.
+    An SM (StripMap) name carries its beam, S1 to S6, where the others carry the mode; the mode
+    returned is then SM. polarization is the co-polarization (VV or HH), the one an OCN product
+    is processed on; a dual-polarization product (DV, DH) also has its cross-polarization channel.
     """
     match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
     if (
@@ -45,9 +46,9 @@ def decode_safe_name(name):
         or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]
         or (match["mode"] == "WV" and match["pol"][0] == "D")
     ):
-        raise ValueError(f"Unsupported Sentinel-1 WV/IW/EW SAFE name: {name!r}")
+        raise ValueError(f"Unsupported Sentinel-1 WV/IW/EW/SM SAFE name: {name!r}")
     return {
-        "mode": match["mode"],
+        "mode": "SM" if match["mode"][0] == "S" else match["mode"],
         "polarization": "VV" if match["pol"][1] == "V" else "HH",
         "producttype": match["producttype"],
     }

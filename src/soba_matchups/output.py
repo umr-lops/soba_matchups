@@ -25,8 +25,8 @@ def file_identity(path):
 def imagette_item(product, imagette, fields, groups, tolerance):
     """Build one STAC Item: an imagette plus its matched reference points, grouped by granule.
 
-    For IW and EW the "imagette" is the whole scene; its measurement file is named only when the
-    archive was given and holds it, otherwise the SAR asset links the SAFE.
+    For IW, EW and SM the "imagette" is the whole scene; its measurement file is named only when
+    the archive was given and holds it, otherwise the SAR asset links the SAFE.
     """
     assets = {
         "sar": {
@@ -111,6 +111,16 @@ def imagette_item(product, imagette, fields, groups, tolerance):
             "sarmatchup:imagette_index": imagette["index"],
             "sarmatchup:measurement_name": imagette["Name"],
             "sarmatchup:polarization": fields["polarization"],
+            # IW, EW and SM scenes: the pass direction the angles rest on, and where it came
+            # from ("slice motion" or "catalogue"); a catalogue-only direction is unchecked.
+            **(
+                {
+                    "sarmatchup:sar_orbit_direction": product.get("OrbitDirection"),
+                    "sarmatchup:sar_orbit_direction_source": product.get("OrbitDirectionSource"),
+                }
+                if "OrbitDirectionSource" in product
+                else {}
+            ),
             "sarmatchup:matchups": matchups,
         },
         "assets": assets,
@@ -119,7 +129,7 @@ def imagette_item(product, imagette, fields, groups, tolerance):
 
 
 def item_filename(item, product):
-    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<PRODUCT>, or for an IW or EW
+    """Return the file stem of an Item: <SAFE name>__IMG<NNN>__<PRODUCT>, or for an IW, EW, SM
     scene (one Item per SAFE) <SAFE name>__<PRODUCT>.
 
     Example (SAFE name, imagette 4, HY-2B HSCAT at 25 km from KNMI):

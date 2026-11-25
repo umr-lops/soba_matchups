@@ -20,6 +20,9 @@ output_dir = "../runs/buoy-001"
 # sar_parquet_root; the archive is then only asked which measurement files exist.
 # daily_parquet_files_v2 does not list SM products yet, so an SM run finds none for now.
 sar_mode = "WV"
+# product_type: "OCN" (default) or "SLC" (Level-1 WV SLC imagettes; WV only, needs
+# sar_parquet_root).
+product_type = "OCN"
 sar_parquet_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/metadata_cdse_sentinel1/daily_parquet_files_v2"
 sar_archive_root = "/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa"
 # Optional: without it (or if it cannot be read) sar_distance_to_coast is null.

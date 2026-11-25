@@ -186,7 +186,7 @@ def test_dateline_halves_join_into_four_continuous_corners_even_off_by_a_hair():
 def test_discovery_reads_only_the_requested_mode_and_checks_the_archive(scenes):
     root = scenes.parent
     products, provenance = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", root / "esa", "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", root / "esa", mode="IW"
     )
     assert [p["Name"] for p in products] == [IW_NAME, DATELINE_NAME]
     assert provenance["sar_mode"] == "IW" and provenance["safes_skipped"] == []
@@ -204,12 +204,12 @@ def test_discovery_reads_only_the_requested_mode_and_checks_the_archive(scenes):
     ]
     # Item ids do not depend on the archive.
     without, _ = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", None, mode="IW"
     )
     assert [p["Imagettes"][0]["Id"] for p in without] == [first["Id"], dateline["Id"]]
     assert without[0]["Imagettes"][0]["href"] == IW_NAME
     ew, _ = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", None, "EW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", None, mode="EW"
     )
     assert [p["Name"][4:6] for p in ew] == ["EW"]
 
@@ -219,7 +219,7 @@ def test_older_daily_files_with_python_literal_columns_are_read(tmp_path):
     rows[0]["GeoFootprint"] = str(json.loads(rows[0]["GeoFootprint"]))
     write_day(tmp_path, rows)
     products, _ = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, mode="IW"
     )
     assert len(products) == 1 and len(products[0]["SceneRing"]) == 4
 
@@ -310,7 +310,7 @@ def test_sm_discovery_reads_beam_named_products_and_files_them_under_sm(scenes):
     safe.mkdir(parents=True)
     (safe / "s1a-s1-ocn-vv-20260629t120000-20260629t120024-000001-000004-001.nc").write_bytes(b"")
     products, provenance = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", root / "esa", "SM"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "parquet", root / "esa", mode="SM"
     )
     assert [p["Name"] for p in products] == [SM_NAME]
     assert products[0]["Imagettes"][0]["href"].endswith("-001.nc")
@@ -322,7 +322,7 @@ def test_sm_run_on_files_without_sm_products_warns_instead_of_looking_empty(scen
     write_day(root / "no_sm", [row(IW_NAME, [moved(IW, 0.5, 0.5)], f"{DAY}T12:00:00Z",
                                    f"{DAY}T12:00:25Z")])
     _, provenance = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "no_sm", None, "SM"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), root / "no_sm", None, mode="SM"
     )
     assert "daily_parquet_files_v2 does not list SM products yet" in provenance["warning"]
     assert "no SM product" in caplog.text
@@ -381,7 +381,7 @@ def test_discovery_keeps_the_catalogue_direction(tmp_path):
     rows[0]["Attributes"] = attributes("ascending")
     write_day(tmp_path, rows)
     (product,), _ = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, mode="IW"
     )
     assert product["OrbitDirection"] == "ascending"
 
@@ -465,7 +465,7 @@ def test_an_unreadable_content_date_skips_the_product(tmp_path):
     rows[0]["ContentDate"] = '{"Start": "2026-06-29T12:00:00Z",'
     write_day(tmp_path, rows)
     products, provenance = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, mode="IW"
     )
     assert products == [] and provenance["safes_skipped"][0]["safe"] == IW_NAME
 
@@ -531,7 +531,7 @@ def test_wv_discovery_ignores_scene_products_in_the_same_daily_file(tmp_path):
     window = (f"{day}T00:00:00Z", f"{day}T23:59:59Z", ("S1A", "S1B", "S1C", "S1D"), tmp_path)
     wv, _ = sp.discover_parquet(*window)
     assert [p["Name"] for p in wv] == [ordinary["Name"]]
-    scenes, _ = sp.discover_parquet(*window, None, "IW")
+    scenes, _ = sp.discover_parquet(*window, None, mode="IW")
     assert [p["Name"] for p in scenes] == [IW_NAME]
 
 
@@ -543,7 +543,7 @@ def test_double_encoded_content_date_and_footprint_are_read(tmp_path):
     rows[0]["GeoFootprint"] = twice(json.loads(rows[0]["GeoFootprint"]))
     write_day(tmp_path, rows)
     (product,), _ = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, mode="IW"
     )
     assert product["ContentDate"]["Start"] == f"{DAY}T12:00:00Z"
     assert len(product["SceneRing"]) == 4
@@ -567,7 +567,7 @@ def test_pass_direction_comes_from_the_slices_of_the_datatake_and_corrections_ar
     )
     write_day(tmp_path, rows)
     products, provenance = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, mode="IW"
     )
     by_name = {p["Name"]: p for p in products}
     assert all(by_name[n]["OrbitDirection"] == "ascending" for n in names)
@@ -606,7 +606,7 @@ def test_a_point_on_a_cut_at_179_99999_is_matched(tmp_path):
     ]
     write_day(tmp_path, [row(IW_NAME, hair, f"{DAY}T12:00:00Z", f"{DAY}T12:00:25Z")])
     (product,), _ = sp.discover_parquet(
-        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, "IW"
+        f"{DAY}T00:00:00Z", f"{DAY}T23:59:59Z", ("S1A",), tmp_path, None, mode="IW"
     )
     reference = {
         "lon": np.array([180.0, -179.999995, 179.5, 170.0]),

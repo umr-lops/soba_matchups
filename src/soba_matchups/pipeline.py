@@ -187,7 +187,8 @@ def run(recipe):
             recipe.sar_missions,
             recipe.sar_parquet_root,
             recipe.sar_archive_root,
-            recipe.sar_mode,
+            mode=recipe.sar_mode,
+            product_type=recipe.product_type,
         )
         verify_inputs = verify_parquet_inputs
     else:
@@ -217,9 +218,10 @@ def run(recipe):
     # Stage 1 tests each whole SAFE; stage 2 tests each imagette on its own footprint and clock.
     for product in products:
         fields = decode_safe_name(product["Name"])
-        if fields["producttype"] != "OCN" or fields["mode"] != recipe.sar_mode:
+        if fields["producttype"] != recipe.product_type or fields["mode"] != recipe.sar_mode:
             raise ValueError(
-                f"SAR product {product['Name']} does not match the {recipe.sar_mode} OCN request"
+                f"SAR product {product['Name']} does not match the {recipe.sar_mode}"
+                f" {recipe.product_type} request"
             )
         candidates = [
             (

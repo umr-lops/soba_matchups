@@ -29,6 +29,8 @@ REFERENCE_PRODUCTS = {
     # keeps its own source ("NDBC buoy", "TAO mooring", "CMEMS in situ").
     ("buoy", "ndbc-tao-cmems", "point"): ("Buoys", "point", "INSITU_NDBC_TAO_CMEMS_WIND"),
 }
+# SAR product types a run can read.
+SAR_PRODUCT_TYPES = ("OCN", "SLC")
 # Recipe keys that only one instrument takes, and that it requires.
 INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy"}
 # Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW, EW
@@ -54,6 +56,7 @@ class Recipe:
     sar_parquet_root: Path | None = None
     distance_to_coast_file: Path | None = None
     cmems_insitu_root: Path | None = None
+    product_type: str = "OCN"
     sar_mode: str = "WV"
 
     def resolved(self):
@@ -72,7 +75,7 @@ def load_recipe(path):
     optional = {"sar_archive_root", "sar_parquet_root"}
     # The distance-to-coast grid is a file, and a run goes on without it. The CMEMS in situ root
     # belongs to the buoy reference only (INSTRUMENT_KEYS), checked below.
-    extra = {"distance_to_coast_file", "sar_mode", *INSTRUMENT_KEYS}
+    extra = {"distance_to_coast_file", "product_type", "sar_mode", *INSTRUMENT_KEYS}
     required = set(Recipe.__dataclass_fields__) - {"path"} - optional - extra
     unknown = set(data) - required - optional - extra
     if unknown or required - set(data):
@@ -82,6 +85,13 @@ def load_recipe(path):
     # The SAR metadata comes from the archive, the daily parquet files, or both.
     if not optional & set(data):
         raise ValueError("Recipe needs sar_archive_root, sar_parquet_root, or both")
+    # One run reads one SAR product type: WV L2 OCN (the default) or WV L1 SLC. SLC is read from
+    # the daily parquet files only: the archive source reads the OCN NetCDF headers.
+    data.setdefault("product_type", "OCN")
+    if data["product_type"] not in SAR_PRODUCT_TYPES:
+        raise ValueError(f"product_type must be one of {list(SAR_PRODUCT_TYPES)}")
+    if data["product_type"] == "SLC" and "sar_parquet_root" not in data:
+        raise ValueError("product_type SLC needs sar_parquet_root")
     product = (data["instrument"], data["platform"], data["resolution"])
     if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
         raise ValueError("Unsupported reference instrument / platform / resolution combination")
@@ -95,6 +105,9 @@ def load_recipe(path):
     # given, is only asked whether each product's measurement file exists.
     if mode != "WV" and "sar_parquet_root" not in data:
         raise ValueError(f"sar_mode {mode!r} needs sar_parquet_root (the daily parquet files)")
+    # SLC is read per WV imagette; IW, EW and SM scenes are OCN products only.
+    if mode != "WV" and data["product_type"] != "OCN":
+        raise ValueError(f"product_type {data['product_type']!r} is only read for sar_mode WV")
     # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]

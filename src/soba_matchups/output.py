@@ -31,7 +31,15 @@ def imagette_item(product, imagette, fields, groups, tolerance):
     assets = {
         "sar": {
             "href": imagette["href"],
-            **({"type": "application/x-netcdf"} if imagette["href"].endswith(".nc") else {}),
+            # An OCN file is NetCDF, an SLC imagette a GeoTIFF; a scene whose file the archive
+            # does not hold links its SAFE folder or name, with no type.
+            **(
+                {"type": "application/x-netcdf"}
+                if imagette["href"].endswith(".nc")
+                else {"type": "image/tiff"}
+                if imagette["href"].endswith(".tiff")
+                else {}
+            ),
             "roles": ["data"],
             "title": imagette["Name"] or product["Name"],
         }

@@ -45,11 +45,23 @@ OPTIONAL_SCENE_COLUMNS = ["Attributes"]
 CUT_EDGE_TOLERANCE = 1e-6
 # Largest latitude difference, in degrees, between the two ends of a cut shared by two halves.
 CUT_LATITUDE_TOLERANCE = 1e-3
-_OCN = {mode: re.compile(rf"S1[ABCD]_{mode}_OCN__2[A-Z]") for mode in ("WV", "IW", "EW")}
-_OCN["SM"] = re.compile(r"S1[ABCD]_S[1-6]_OCN__2[A-Z]")
+# The SAFE name each run reads, per mode and product type: L2 OCN for every mode, L1 SLC for WV.
+# SM names carry the beam (S1 to S6) where the others carry the mode.
+_PRODUCT_TOKENS = {"OCN": "OCN__2[A-Z]", "SLC": "SLC__1[A-Z]"}
+PRODUCT_TYPES = {"WV": ("OCN", "SLC"), "IW": ("OCN",), "EW": ("OCN",), "SM": ("OCN",)}
+# Archive level and folder suffix of each product type.
+_ARCHIVE_FOLDER = {"OCN_": ("L2", "OCN__2S"), "SLC_": ("L1", "SLC__1S")}
 # A vertex this close (degrees) to +-180 or 0 is one the catalogue's cutting added; halves are
 # sometimes cut at 179.99999 instead of 180.
 SCENE_GRID_DEGREES = 1e-4
+
+
+def _pattern(mode, product_type):
+    """Return the regex a product name of this mode and type starts with."""
+    if product_type not in PRODUCT_TYPES.get(mode, ()):
+        raise ValueError(f"Unsupported SAR mode / product type {mode!r} / {product_type!r}")
+    beam = "S[1-6]" if mode == "SM" else mode
+    return re.compile(rf"S1[ABCD]_{beam}_{_PRODUCT_TOKENS[product_type]}")
 
 
 def _loads(text):
@@ -141,17 +153,24 @@ def _geometry(rings):
     return mapping(shapes[0] if len(shapes) == 1 else unary_union(shapes))
 
 
-def _safe_folder(archive_root, name):
-    """Return the archive folder of an OCN SAFE (L2/<mode>/<S1x>_<mode>_OCN__2S/<year>/<doy>)."""
+def _safe_folder(archive_root, name, product_type=None):
+    """Return the archive folder of a SAFE, read from its name:
+    sentinel-1x/<L2|L1>/<mode>/<S1x>_<mode>_<OCN__2S|SLC__1S>/<year>/<doy>/<name>.
+
+    product_type, when given, must be the name's own.
+    """
     mission, mode = name[:3], name[4:6]
     mode = "SM" if mode[0] == "S" else mode
+    level, suffix = _ARCHIVE_FOLDER[name[7:11]]
+    if product_type is not None and product_type != name[7:10]:
+        raise ValueError(f"{name} is not a {product_type} product")
     start = datetime.strptime(name.split("_")[5], "%Y%m%dT%H%M%S")
     return (
         archive_root
         / ("sentinel-1" + mission[-1].lower())
-        / "L2"
+        / level
         / mode
-        / f"{mission}_{mode}_OCN__2S"
+        / f"{mission}_{mode}_{suffix}"
         / start.strftime("%Y/%j")
         / name
     )
@@ -317,7 +336,7 @@ def _scene(row, archive_root):
     }, unavailable
 
 
-def _product(row, archive_root):
+def _product(row, archive_root, product_type="OCN"):
     """Build the product record of one parquet row, with its imagettes and their availability."""
     name = row["Name"]
     listed = _loads(row["WVImagettes"])
@@ -333,7 +352,7 @@ def _product(row, archive_root):
     if numbers != list(range(1, len(numbers) + 1)):
         raise ValueError("Imagette numbers are not 1..N")
     product_id = "local_" + hashlib.sha256(name.encode()).hexdigest()
-    folder = _safe_folder(archive_root, name) if archive_root is not None else None
+    folder = _safe_folder(archive_root, name, product_type) if archive_root is not None else None
     present = (
         {p.name for p in (folder / "measurement").iterdir()}
         if folder is not None and (folder / "measurement").is_dir()
@@ -383,18 +402,21 @@ def discover_parquet(
     missions: tuple[str, ...],
     parquet_root: Path,
     sar_archive_root: Path | None = None,
+    product_type: str = "OCN",
     mode: str = "WV",
 ) -> tuple[list[dict], dict]:
-    """Read the daily parquet files of the covered days and return the OCN products to match.
+    """Read the daily parquet files of the covered days and return the products to match.
 
     mode is WV (one record per imagette) or IW, EW, SM (one record per product, the scene).
+    product_type is OCN, or SLC for WV: a run reads one type and never mixes them.
     Products with no imagette list, and products whose polygons and imagettes disagree (or, for a
     scene, whose footprint is not one polygon), are left out and named in the returned
     provenance. Measurement files absent from the archive are kept, flagged unavailable and named
     there too. Coverage must already include the time tolerance.
     """
-    if mode not in _OCN:
+    if mode not in PRODUCT_TYPES:
         raise ValueError(f"Unsupported SAR mode {mode!r}")
+    selected = _pattern(mode, product_type)
     first, last = _utc(start), _utc(end)
     if first >= last:
         raise ValueError("start must precede end")
@@ -405,6 +427,7 @@ def discover_parquet(
         "missing_files": [],
         "coverage": {"start": start, "end": end},
         "missions": sorted(set(missions)),
+        "product_type": product_type,
         "sar_parquet_root": str(parquet_root),
         "sar_archive_root": None if sar_archive_root is None else str(sar_archive_root),
         "sar_mode": mode,
@@ -428,7 +451,7 @@ def discover_parquet(
             columns = SCENE_COLUMNS if scene else COLUMNS
             for row in _read_day(path, columns, OPTIONAL_SCENE_COLUMNS if scene else ()):
                 name = row["Name"]
-                if not _OCN[mode].match(name) or name[:3] not in missions or name in seen:
+                if not selected.match(name) or name[:3] not in missions or name in seen:
                     continue
                 seen.add(name)
                 count += 1
@@ -462,7 +485,7 @@ def discover_parquet(
                     )
                     continue
                 try:
-                    product, unavailable = _product(row, sar_archive_root)
+                    product, unavailable = _product(row, sar_archive_root, product_type)
                 except (ValueError, KeyError, TypeError) as exc:
                     provenance["safes_skipped"].append({"safe": name, "reason": str(exc)})
                     continue

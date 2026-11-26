@@ -22,7 +22,7 @@ REFERENCE_PRODUCTS = {
     ("hscat", "hy-2b", "25km"): ("HY-2B HSCAT", "25.0 km", "KNMI_HSCAT_HY2B_25KM"),
     ("hscat", "hy-2c", "25km"): ("HY-2C HSCAT", "25.0 km", "KNMI_HSCAT_HY2C_25KM"),
     ("hscat", "hy-2d", "25km"): ("HY-2D HSCAT", "25.0 km", "KNMI_HSCAT_HY2D_25KM"),
-    ("karin", "swot", "2km"): ("SWOT KaRIn", "2 km", "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"),
+    ("karin", "swot", "2km"): ("SWOT KaRIn", "2 km", "PODAAC_SWOT_KARIN_L2_WINDWAVE"),
     ("alti", "cci", "l2p"): ("CCI altimeters", "1 Hz", "ESACCI_SEASTATE_L2P"),
     ("alti", "cmems", "l3"): ("CMEMS altimeters", "1 Hz", "CMEMS_WAV_L3_ALTI_VAVH"),
     # NDBC buoys (NCEI), TAO moorings, and the CMEMS in situ platforms in neither; each file
@@ -31,8 +31,11 @@ REFERENCE_PRODUCTS = {
 }
 # SAR product types a run can read.
 SAR_PRODUCT_TYPES = ("OCN", "SLC")
-# Recipe keys that only one instrument takes, and that it requires.
-INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy"}
+# Recipe keys that only one instrument takes, and that it requires. The *_root ones are folders.
+INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy", "swot_crid": "karin"}
+# SWOT processing levels a run can read, one per run (recipe key swot_crid); each is a sub-folder
+# of reference_root and ends the Item file names (PODAAC_SWOT_KARIN_L2_WINDWAVE_PID2).
+SWOT_CRIDS = ("PGD0", "PID0", "PGD2", "PID2")
 # Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW, EW
 # and SM (StripMap, beams S1 to S6) per scene (one OCN product), from the daily parquet files only.
 SAR_MODES = ("WV", "IW", "EW", "SM")
@@ -56,6 +59,7 @@ class Recipe:
     sar_parquet_root: Path | None = None
     distance_to_coast_file: Path | None = None
     cmems_insitu_root: Path | None = None
+    swot_crid: str | None = None
     product_type: str = "OCN"
     sar_mode: str = "WV"
 
@@ -98,6 +102,8 @@ def load_recipe(path):
     for key, instrument in INSTRUMENT_KEYS.items():
         if (key in data) != (data["instrument"] == instrument):
             raise ValueError(f"{key} is required for instrument {instrument!r} and only for it")
+    if "swot_crid" in data and data["swot_crid"] not in SWOT_CRIDS:
+        raise ValueError(f"swot_crid must be one of {list(SWOT_CRIDS)}")
     mode = data.setdefault("sar_mode", "WV")
     if mode not in SAR_MODES:
         raise ValueError(f"sar_mode must be one of {list(SAR_MODES)}")
@@ -143,7 +149,8 @@ def load_recipe(path):
     # Make every path absolute, relative to the recipe file.
     paths = ["reference_root", "output_dir"]
     inputs = ["reference_root"]
-    for key in sorted((optional | set(INSTRUMENT_KEYS)) & set(data)):
+    folder_keys = {k for k in INSTRUMENT_KEYS if k.endswith("_root")}
+    for key in sorted((optional | folder_keys) & set(data)):
         paths.append(key)
         inputs.append(key)
     for key in paths:

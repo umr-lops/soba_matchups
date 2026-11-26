@@ -93,7 +93,7 @@ Product label by recipe:
 | `ascat` / `metop-b` / `12.5km` | `KNMI_ASCAT_METOPB_12P5KM` |
 | `ascat` / `metop-b` / `5.7km` | `KNMI_ASCAT_METOPB_5P7KM` |
 | `ascat` / `metop-c` / `12.5km` | `KNMI_ASCAT_METOPC_12P5KM` |
-| `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_D0` |
+| `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_<CRID>`, for example `PODAAC_SWOT_KARIN_L2_WINDWAVE_PID2`: the processing level the run read (recipe key `swot_crid`); the file version, which varies within a day, is in `reference_version` |
 | `alti` / `cci` / `l2p` | `ESACCI_SEASTATE_L2P_V<release>`, for example `ESACCI_SEASTATE_L2P_V5` (all CCI altimeter missions of the root) |
 | `alti` / `cmems` / `l3` | `CMEMS_WAV_L3_ALTI_VAVH` (all CMEMS altimeter missions of the root; no release in the label) |
 | `buoy` / `ndbc-tao-cmems` / `point` | `INSITU_NDBC_TAO_CMEMS_WIND` (NDBC buoys, TAO moorings and the CMEMS in situ buoys in neither) |
@@ -102,7 +102,7 @@ An IW scene matched to HY-2B HSCAT is named
 `S1A_IW_OCN__2SDH_20250415T070725_20250415T070754_058764_0747A0_F658__KNMI_HSCAT_HY2B_25KM.json`.
 
 The same WV imagette matched to SWOT is named
-`S1D_WV_OCN__2SSV_20260622T213558_20260622T214335_003354_005E47_1F38__IMG010__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json`.
+`S1D_WV_OCN__2SSV_20260622T213558_20260622T214335_003354_005E47_1F38__IMG010__PODAAC_SWOT_KARIN_L2_WINDWAVE_PID0.json`.
 
 The processing version of the reference files is not part of the name. The Item
 records it per granule (`reference_version`).
@@ -432,12 +432,12 @@ and its `ContentDate` interval. The dateline is not a footprint boundary: a cell
 recorded, never used to filter. Where a reference differs:
 
 - **SWOT:** the time test is made on each line's time (shared by the line's pixels) and the
-  footprint test on each pixel's centre. Files are read from the `PGD0`, `PID0`, `PGD2` and
-  `PID2` folders of `reference_root`, one file per cycle and pass: the highest version number
-  in a folder, and the later release when a pass is in a D0 and a D2 folder (AVISO moved the
-  forward processing from PID0 to PID2 at cycle 059 pass 130, 2026-11-17, a pass found in both).
-  A pass in two folders of the same release (`PGD0` and `PID0`) is an error. The release read
-  is in `reference_version`, for example `PID2_01`.
+  footprint test on each pixel's centre. A run reads one processing level, the recipe key
+  `swot_crid` (`PGD0`, `PID0`, `PGD2` or `PID2`), from the folder of that name under
+  `reference_root`: one file per cycle and pass, the highest version number. AVISO moved the
+  forward processing from PID0 to PID2 at cycle 059 pass 130 (2026-11-17), so a pass can be in
+  two levels; each level is matched by its own run, into its own output folder, and the levels
+  stay apart (Item names end with the level, file versions are in `reference_version`).
 - **ALTI (CCI and CMEMS):** all points inside the footprint are kept. If none is inside, the
   tool keeps one point: among those within 30 km of the imagette's OSW cell centre (for an IW or
   EW scene, the centroid of its footprint) and inside
@@ -479,8 +479,9 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 16: the manifest gives `sar_mode`, and IW, EW and SM runs write one Item per
-  scene. Since 15, point values may be text or true/false, and granule groups may carry fields
+  `schema_version` is 17: SWOT runs read one processing level (`recipe.swot_crid`), which ends
+  the SWOT label (`PODAAC_SWOT_KARIN_L2_WINDWAVE_PID2`, was `..._D0`). Since 16, the manifest
+  gives `sar_mode`, and IW, EW and SM runs write one Item per scene. Since 15, point values may be text or true/false, and granule groups may carry fields
   of their own (`reference_platform`). In IW, EW and SM runs, `discovery.imagettes_unavailable`
   lists scenes (one entry per SAFE whose measurement file the archive lacks) and
   `discovery.safes_skipped` the products whose footprint pieces do not form one polygon.

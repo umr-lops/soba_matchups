@@ -149,3 +149,40 @@ output_dir = "run"
     recipe.write_text(base + scene)
     with pytest.raises(ValueError, match="only read for sar_mode WV"):
         load_recipe(recipe)
+
+
+def _karin(local_recipe, extra):
+    local_recipe.write_text(
+        local_recipe.read_text()
+        .replace('instrument = "hscat"', 'instrument = "karin"')
+        .replace('platform = "hy-2b"', 'platform = "swot"')
+        .replace('resolution = "25km"', 'resolution = "2km"')
+        + extra
+    )
+    return local_recipe
+
+
+def test_swot_crid_is_required_for_karin_and_checked(local_recipe):
+    from soba_matchups.config import load_recipe
+
+    original = local_recipe.read_text()
+    assert load_recipe(_karin(local_recipe, 'swot_crid = "PID2"\n')).swot_crid == "PID2"
+    local_recipe.write_text(original)
+    with pytest.raises(ValueError, match="swot_crid is required for instrument 'karin'"):
+        load_recipe(_karin(local_recipe, ""))
+
+
+@pytest.mark.parametrize("value", ['"PIC2"', '"pid2"', '["PID0", "PID2"]'])
+def test_swot_crid_must_be_one_known_crid(local_recipe, value):
+    from soba_matchups.config import load_recipe
+
+    with pytest.raises(ValueError, match="swot_crid must be one of"):
+        load_recipe(_karin(local_recipe, f"swot_crid = {value}\n"))
+
+
+def test_swot_crid_is_rejected_for_other_instruments(local_recipe):
+    from soba_matchups.config import load_recipe
+
+    local_recipe.write_text(local_recipe.read_text() + 'swot_crid = "PID0"\n')
+    with pytest.raises(ValueError, match="swot_crid is required for instrument 'karin' and only"):
+        load_recipe(local_recipe)

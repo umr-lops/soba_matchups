@@ -23,7 +23,7 @@ def _points(recipe):
 def test_every_point_has_the_three_angle_fields(local_recipe):
     """The three fields exist on every point; the run goes on if the library cannot place them."""
     manifest, points = _points(local_recipe)
-    assert points and manifest["schema_version"] == 17
+    assert points and manifest["schema_version"] == 18
     for point in points:
         for key in (
             "sar_incidence_angle",

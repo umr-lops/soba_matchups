@@ -32,10 +32,11 @@ REFERENCE_PRODUCTS = {
 # SAR product types a run can read.
 SAR_PRODUCT_TYPES = ("OCN", "SLC")
 # Recipe keys that only one instrument takes, and that it requires. The *_root ones are folders.
-INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy", "swot_crid": "karin"}
-# SWOT processing levels a run can read, one per run (recipe key swot_crid); each is a sub-folder
-# of reference_root and ends the Item file names (PODAAC_SWOT_KARIN_L2_WINDWAVE_PID2).
-SWOT_CRIDS = ("PGD0", "PID0", "PGD2", "PID2")
+INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy", "swot_release": "karin"}
+# SWOT releases a run can read, one per run (recipe key swot_release). Release D2 reads the
+# sub-folders PGD2 (ground reprocessing) and PID2 (forward processing) of reference_root, and the
+# release ends the Item file names (PODAAC_SWOT_KARIN_L2_WINDWAVE_D2).
+SWOT_RELEASES = ("D0", "D2")
 # Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW, EW
 # and SM (StripMap, beams S1 to S6) per scene (one OCN product), from the daily parquet files only.
 SAR_MODES = ("WV", "IW", "EW", "SM")
@@ -59,7 +60,7 @@ class Recipe:
     sar_parquet_root: Path | None = None
     distance_to_coast_file: Path | None = None
     cmems_insitu_root: Path | None = None
-    swot_crid: str | None = None
+    swot_release: str | None = None
     product_type: str = "OCN"
     sar_mode: str = "WV"
 
@@ -102,8 +103,8 @@ def load_recipe(path):
     for key, instrument in INSTRUMENT_KEYS.items():
         if (key in data) != (data["instrument"] == instrument):
             raise ValueError(f"{key} is required for instrument {instrument!r} and only for it")
-    if "swot_crid" in data and data["swot_crid"] not in SWOT_CRIDS:
-        raise ValueError(f"swot_crid must be one of {list(SWOT_CRIDS)}")
+    if "swot_release" in data and data["swot_release"] not in SWOT_RELEASES:
+        raise ValueError(f"swot_release must be one of {list(SWOT_RELEASES)}")
     mode = data.setdefault("sar_mode", "WV")
     if mode not in SAR_MODES:
         raise ValueError(f"sar_mode must be one of {list(SAR_MODES)}")

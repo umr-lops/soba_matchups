@@ -162,27 +162,28 @@ def _karin(local_recipe, extra):
     return local_recipe
 
 
-def test_swot_crid_is_required_for_karin_and_checked(local_recipe):
+def test_swot_release_is_required_for_karin_and_checked(local_recipe):
     from soba_matchups.config import load_recipe
 
     original = local_recipe.read_text()
-    assert load_recipe(_karin(local_recipe, 'swot_crid = "PID2"\n')).swot_crid == "PID2"
+    assert load_recipe(_karin(local_recipe, 'swot_release = "D2"\n')).swot_release == "D2"
     local_recipe.write_text(original)
-    with pytest.raises(ValueError, match="swot_crid is required for instrument 'karin'"):
+    with pytest.raises(ValueError, match="swot_release is required for instrument 'karin'"):
         load_recipe(_karin(local_recipe, ""))
 
 
-@pytest.mark.parametrize("value", ['"PIC2"', '"pid2"', '["PID0", "PID2"]'])
-def test_swot_crid_must_be_one_known_crid(local_recipe, value):
+@pytest.mark.parametrize("value", ['"PID2"', '"d2"', '"D1"', '["D0", "D2"]'])
+def test_swot_release_must_be_d0_or_d2(local_recipe, value):
     from soba_matchups.config import load_recipe
 
-    with pytest.raises(ValueError, match="swot_crid must be one of"):
-        load_recipe(_karin(local_recipe, f"swot_crid = {value}\n"))
+    with pytest.raises(ValueError, match="swot_release must be one of"):
+        load_recipe(_karin(local_recipe, f"swot_release = {value}\n"))
 
 
-def test_swot_crid_is_rejected_for_other_instruments(local_recipe):
+def test_swot_release_is_rejected_for_other_instruments(local_recipe):
     from soba_matchups.config import load_recipe
 
-    local_recipe.write_text(local_recipe.read_text() + 'swot_crid = "PID0"\n')
-    with pytest.raises(ValueError, match="swot_crid is required for instrument 'karin' and only"):
+    local_recipe.write_text(local_recipe.read_text() + 'swot_release = "D0"\n')
+    only = "swot_release is required for instrument 'karin' and only"
+    with pytest.raises(ValueError, match=only):
         load_recipe(local_recipe)

@@ -35,8 +35,15 @@ UNITS = {
     "wind_speed_karin": "m s-1",
     "wind_speed_karin_2": "m s-1",
 }
-# Processing levels accepted: the D0 releases. The files sit flat inside each folder.
-CRIDS = ("PGD0", "PID0")
+# Processing levels accepted: the D0 and D2 releases, ground (PG) or forward (PI) processing.
+# The files sit flat inside each folder. AVISO moved the forward processing from PID0 to PID2 at
+# cycle 059 pass 130 (2026-11-17), so a pass can be in both PID0 and PID2.
+CRIDS = ("PGD0", "PID0", "PGD2", "PID2")
+
+
+def _release(crid):
+    """The release of a CRID, for example D2 for PID2. A later release supersedes an earlier."""
+    return crid[2:]
 _NAME = re.compile(
     r"SWOT_L2_LR_SSH_WindWave_(?P<cycle>\d{3})_(?P<pass>\d{3})_(?P<start>\d{8}T\d{6})"
     r"_(?P<end>\d{8}T\d{6})_(?P<crid>[A-Z0-9]{4})_(?P<version>\d{2})\.nc"
@@ -58,12 +65,14 @@ def _clock(token):
 def find_files(recipe):
     """List the SWOT files to read: one per (cycle, pass), the highest version, in the days.
 
-    Only regular files directly inside the PGD0 and PID0 folders are looked at; sub-folders and
-    names that do not follow the SWOT naming are ignored. A pass found in both folders is an error.
+    Only regular files directly inside the CRIDS folders (any of them may be missing) are looked
+    at; sub-folders and names that do not follow the SWOT naming are ignored. A pass found in two
+    releases is read from the later one (D2 over D0). A pass found in two folders of the same
+    release (PGD0 and PID0) is an error.
     """
     folders = [recipe.reference_root / crid for crid in CRIDS]
     if not any(folder.is_dir() for folder in folders):
-        raise ValueError(f"No {' or '.join(CRIDS)} folder in {recipe.reference_root}")
+        raise ValueError(f"No {', '.join(CRIDS)} folder in {recipe.reference_root}")
     chosen = {}
     for folder in filter(Path.is_dir, folders):
         with os.scandir(folder) as entries:
@@ -72,13 +81,19 @@ def find_files(recipe):
                 if match is None or match["crid"] != folder.name or not entry.is_file():
                     continue
                 key = (match["cycle"], match["pass"])
+                candidate = (folder.name, match["version"], Path(entry.path), match["start"])
                 known = chosen.get(key)
-                if known is not None and known[0] != folder.name:
+                if known is None:
+                    chosen[key] = candidate
+                elif known[0] == folder.name:
+                    if match["version"] > known[1]:
+                        chosen[key] = candidate
+                elif _release(known[0]) == _release(folder.name):
                     raise ValueError(
                         f"SWOT cycle {key[0]} pass {key[1]} is in both {known[0]} and {folder.name}"
                     )
-                if known is None or match["version"] > known[1]:
-                    chosen[key] = (folder.name, match["version"], Path(entry.path), match["start"])
+                elif _release(folder.name) > _release(known[0]):
+                    chosen[key] = candidate
     selected = sorted(
         path
         for _, _, path, start in chosen.values()

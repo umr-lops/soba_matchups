@@ -432,7 +432,12 @@ and its `ContentDate` interval. The dateline is not a footprint boundary: a cell
 recorded, never used to filter. Where a reference differs:
 
 - **SWOT:** the time test is made on each line's time (shared by the line's pixels) and the
-  footprint test on each pixel's centre.
+  footprint test on each pixel's centre. Files are read from the `PGD0`, `PID0`, `PGD2` and
+  `PID2` folders of `reference_root`, one file per cycle and pass: the highest version number
+  in a folder, and the later release when a pass is in a D0 and a D2 folder (AVISO moved the
+  forward processing from PID0 to PID2 at cycle 059 pass 130, 2026-11-17, a pass found in both).
+  A pass in two folders of the same release (`PGD0` and `PID0`) is an error. The release read
+  is in `reference_version`, for example `PID2_01`.
 - **ALTI (CCI and CMEMS):** all points inside the footprint are kept. If none is inside, the
   tool keeps one point: among those within 30 km of the imagette's OSW cell centre (for an IW or
   EW scene, the centroid of its footprint) and inside

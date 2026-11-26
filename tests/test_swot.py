@@ -247,10 +247,59 @@ def test_find_files_rejects_a_pass_present_in_two_releases(tmp_path):
         find_files(recipe)
 
 
+def test_find_files_prefers_the_later_release_of_a_pass(tmp_path):
+    from soba_matchups.adapters.swot import find_files
+
+    # AVISO moved the forward processing from PID0 to PID2 at cycle 059 pass 130: that pass is in
+    # both folders. The D2 file is read, whatever its version number; other passes are unchanged.
+    recipe = tree(
+        tmp_path,
+        {
+            "PID0": [
+                name(59, 130, "20260629T010000", version="03"),
+                name(59, 129, "20260629T000000"),
+            ],
+            "PID2": [
+                name(59, 130, "20260629T010000", crid="PID2", version="01"),
+                name(59, 131, "20260629T020000", crid="PID2"),
+            ],
+        },
+    )
+    assert [p.name for p in find_files(recipe)] == sorted(
+        [
+            name(59, 129, "20260629T000000"),
+            name(59, 130, "20260629T010000", crid="PID2", version="01"),
+            name(59, 131, "20260629T020000", crid="PID2"),
+        ]
+    )
+
+
+def test_find_files_rejects_a_pass_in_two_folders_of_the_later_release(tmp_path):
+    from soba_matchups.adapters.swot import find_files
+
+    recipe = tree(
+        tmp_path,
+        {
+            "PID0": [name(59, 130, "20260629T010000")],
+            "PID2": [name(59, 130, "20260629T010000", crid="PID2")],
+            "PGD2": [name(59, 130, "20260629T010000", crid="PGD2")],
+        },
+    )
+    with pytest.raises(ValueError, match="both PGD2 and PID2|both PID2 and PGD2"):
+        find_files(recipe)
+
+
+def test_find_files_reads_a_d2_folder_alone(tmp_path):
+    from soba_matchups.adapters.swot import find_files
+
+    recipe = tree(tmp_path, {"PID2": [name(59, 131, "20260629T020000", crid="PID2")]})
+    assert [p.name for p in find_files(recipe)] == [name(59, 131, "20260629T020000", crid="PID2")]
+
+
 def test_find_files_reports_missing_folders_and_empty_days(tmp_path):
     from soba_matchups.adapters.swot import find_files
 
-    with pytest.raises(ValueError, match="No PGD0 or PID0 folder"):
+    with pytest.raises(ValueError, match="No PGD0, PID0, PGD2, PID2 folder"):
         find_files(tree(tmp_path, {"PIC2": []}))
     with pytest.raises(ValueError, match="No SWOT files starting"):
         find_files(tree(tmp_path / "second", {"PID0": [name(44, 108, "20260101T010000")]}))

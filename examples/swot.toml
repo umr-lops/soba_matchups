@@ -2,7 +2,8 @@ instrument = "karin"
 platform = "swot"
 resolution = "2km"
 
-# The folder that holds the PGD0 and PID0 sub-folders of SWOT_L2_LR_SSH_WindWave files.
+# The folder that holds the PGD0, PID0, PGD2 and PID2 sub-folders of SWOT_L2_LR_SSH_WindWave
+# files (any may be missing). A pass in a D0 and a D2 folder is read from D2.
 reference_root = "/path/to/SWOT_L2_KARIN_LR_WindWave_AVISO"
 start_date = "2026-06-22"
 stop_date = "2026-06-23"  # Exclusive; selects reference-file start days.

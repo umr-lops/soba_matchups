@@ -66,7 +66,10 @@ Recipes select an explicit ``instrument`` / ``platform`` / ``resolution`` combin
 * ``ascat`` / ``metop-b`` / ``25km``, ``12.5km`` or ``5.7km``.
 * ``ascat`` / ``metop-c`` / ``12.5km``.
 * ``hscat`` / ``hy-2b``, ``hy-2c`` or ``hy-2d`` / ``25km``.
-* ``karin`` / ``swot`` / ``2km``: SWOT KaRIn L2 wave and wind (``examples/swot.toml``).
+* ``karin`` / ``swot`` / ``2km``: SWOT KaRIn L2 wave and wind (``examples/swot.toml``). The
+  required extra key ``swot_crid`` (``PGD0``, ``PID0``, ``PGD2`` or ``PID2``) is the processing level
+  read, from the sub-folder of that name under ``reference_root``; it ends the Item file names.
+  Match each level in its own run and output folder.
 * ``alti`` / ``cci`` / ``l2p``: ESA CCI Sea State altimeter wave height, all missions found under the root (``examples/alti.toml``).
 * ``buoy`` / ``ndbc-tao-cmems`` / ``point``: in situ wind from NDBC buoys (``get_ncei_data``),
   TAO moorings (``get_tao_data``) and the CMEMS in situ buoys (moored surface buoys and

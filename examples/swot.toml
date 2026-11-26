@@ -2,8 +2,11 @@ instrument = "karin"
 platform = "swot"
 resolution = "2km"
 
-# The folder that holds the PGD0 and PID0 sub-folders of SWOT_L2_LR_SSH_WindWave files.
+# The folder that holds the PGD0, PID0, PGD2 and PID2 sub-folders of SWOT_L2_LR_SSH_WindWave files.
 reference_root = "/path/to/SWOT_L2_KARIN_LR_WindWave_AVISO"
+# The processing level this run reads (one per run): PGD0, PID0, PGD2 or PID2. AVISO moved the
+# forward processing from PID0 to PID2 on 2026-11-17. It ends the Item names (..._WINDWAVE_PID2).
+swot_crid = "PID2"
 start_date = "2026-06-22"
 stop_date = "2026-06-23"  # Exclusive; selects reference-file start days.
 sar_missions = ["S1D"]

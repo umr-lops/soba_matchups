@@ -171,14 +171,14 @@ def test_reader_rejects_an_implausible_time_span(tmp_path):
         read(write(tmp_path, ds))
 
 
-def tree(tmp_path, files):
+def tree(tmp_path, files, crid="PID0"):
     """Create empty files at {folder: [names]} under a reference root; return a recipe stand-in."""
     root = tmp_path / "swot"
     for folder, names in files.items():
         (root / folder).mkdir(parents=True, exist_ok=True)
         for name in names:
             (root / folder / name).touch()
-    return SimpleNamespace(reference_root=root, **DAY)
+    return SimpleNamespace(reference_root=root, swot_crid=crid, **DAY)
 
 
 def name(cycle, pass_number, start, crid="PID0", version="01"):
@@ -218,48 +218,53 @@ def test_find_files_selects_the_days_and_ignores_folders_and_other_files(tmp_pat
                 name(44, 108, "20260629T010000"),
                 name(44, 100, "20260628T230000"),  # starts the day before
                 name(44, 120, "20260630T000000"),  # starts the exclusive stop day
+                name(44, 121, "20260629T030000", crid="PID2"),  # another CRID's name
                 "notes.txt",
                 "SWOT_L2_LR_SSH_WindWave_bad_name.nc",
             ],
-            "PGD0": [name(1, 5, "20260629T020000", crid="PGD0")],
-            "PIC2": [name(44, 111, "20260629T070000", crid="PIC2")],  # not a D0 release
+            "PGD0": [name(1, 5, "20260629T020000", crid="PGD0")],  # another CRID's folder
             "PID0/OLD": [name(44, 108, "20260629T010000")],  # sub-folder: ignored
-            "PID0/PGC0": [name(44, 112, "20260629T080000", crid="PGC0")],
         },
     )
-    names = [p.name for p in find_files(recipe)]
-    assert names == sorted(
-        [name(44, 108, "20260629T010000"), name(1, 5, "20260629T020000", crid="PGD0")]
-    )
+    assert [p.name for p in find_files(recipe)] == [name(44, 108, "20260629T010000")]
 
 
-def test_find_files_rejects_a_pass_present_in_two_releases(tmp_path):
+@pytest.mark.parametrize("crid", ["PID0", "PID2"])
+def test_find_files_reads_only_the_recipe_crid(tmp_path, crid):
     from soba_matchups.adapters.swot import find_files
 
-    recipe = tree(
-        tmp_path,
-        {
-            "PID0": [name(44, 108, "20260629T010000")],
-            "PGD0": [name(44, 108, "20260629T010000", crid="PGD0")],
-        },
-    )
-    with pytest.raises(ValueError, match="both PGD0 and PID0|both PID0 and PGD0"):
-        find_files(recipe)
+    # AVISO moved the forward processing from PID0 to PID2 at cycle 059 pass 130: that pass is in
+    # both folders, and each run reads its own CRID only.
+    files = {
+        "PID0": [name(59, 129, "20260629T000000"), name(59, 130, "20260629T010000")],
+        "PID2": [name(59, 130, "20260629T010000", crid="PID2")],
+    }
+    expected = {
+        "PID0": [name(59, 129, "20260629T000000"), name(59, 130, "20260629T010000")],
+        "PID2": [name(59, 130, "20260629T010000", crid="PID2")],
+    }
+    assert [p.name for p in find_files(tree(tmp_path, files, crid))] == expected[crid]
 
 
 def test_find_files_reports_missing_folders_and_empty_days(tmp_path):
     from soba_matchups.adapters.swot import find_files
 
-    with pytest.raises(ValueError, match="No PGD0 or PID0 folder"):
-        find_files(tree(tmp_path, {"PIC2": []}))
+    with pytest.raises(ValueError, match="No PID2 folder"):
+        find_files(tree(tmp_path, {"PID0": []}, crid="PID2"))
     with pytest.raises(ValueError, match="No SWOT files starting"):
         find_files(tree(tmp_path / "second", {"PID0": [name(44, 108, "20260101T010000")]}))
 
 
-def test_swot_label_is_registered_in_the_product_table():
+def test_swot_label_ends_with_the_crid_read():
+    from soba_matchups.adapters.swot import product_suffix
     from soba_matchups.config import REFERENCE_PRODUCTS
 
-    assert REFERENCE_PRODUCTS[("karin", "swot", "2km")][2] == "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"
+    assert REFERENCE_PRODUCTS[("karin", "swot", "2km")][2] == "PODAAC_SWOT_KARIN_L2_WINDWAVE"
+    assert product_suffix([{"version": "PID2_01"}, {"version": "PID2_01"}]) == "_PID2"
+    # file versions vary within a day; the label names the CRID only
+    assert product_suffix([{"version": "PID0_01"}, {"version": "PID0_03"}]) == "_PID0"
+    with pytest.raises(ValueError, match="several CRIDs"):
+        product_suffix([{"version": "PID0_01"}, {"version": "PID2_01"}])
 
 
 def test_swot_end_to_end_matches_cells_by_line_time_and_footprint(local_recipe):
@@ -284,18 +289,18 @@ def test_swot_end_to_end_matches_cells_by_line_time_and_footprint(local_recipe):
         .replace('reference_root = "reference"', 'reference_root = "swot"')
         .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 60")
         .replace('output_dir = "result"', 'output_dir = "swot_result"')
+        + 'swot_crid = "PID0"\n'
     )
     assert main(["run", "--recipe", str(swot_recipe)]) == 0
     result = root / "swot_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["reference_product"] == "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"
+    assert manifest["reference_product"] == "PODAAC_SWOT_KARIN_L2_WINDWAVE_PID0"
     assert manifest["reference_versions"] == ["PID0_01"]
     assert manifest["rules"]["policy"] == "swot_local_ocn_imagette_v1"
     assert "swh_karin" in manifest["units"] and "wind_direction_to" not in manifest["units"]
     items = sorted((result / "items").glob("*.json"))
-    assert [i.name.endswith("__IMG001__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json") for i in items] == [
-        True
-    ] * len(items)
+    suffix = "__IMG001__PODAAC_SWOT_KARIN_L2_WINDWAVE_PID0.json"
+    assert items and all(i.name.endswith(suffix) for i in items)
     item = json.loads(items[0].read_text())
     props = item["properties"]
     assert props["sarmatchup:other_type"] == "altimeter"
@@ -344,6 +349,7 @@ def swot_recipe_with_files(local_recipe, empty=True, corrupt=True, good=True):
         .replace('reference_root = "reference"', 'reference_root = "swot"')
         .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 60")
         .replace('output_dir = "result"', 'output_dir = "swot_result"')
+        + 'swot_crid = "PID0"\n'
     )
     return recipe
 

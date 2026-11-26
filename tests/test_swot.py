@@ -171,14 +171,14 @@ def test_reader_rejects_an_implausible_time_span(tmp_path):
         read(write(tmp_path, ds))
 
 
-def tree(tmp_path, files, crid="PID0"):
+def tree(tmp_path, files, release="D0"):
     """Create empty files at {folder: [names]} under a reference root; return a recipe stand-in."""
     root = tmp_path / "swot"
     for folder, names in files.items():
         (root / folder).mkdir(parents=True, exist_ok=True)
         for name in names:
             (root / folder / name).touch()
-    return SimpleNamespace(reference_root=root, swot_crid=crid, **DAY)
+    return SimpleNamespace(reference_root=root, swot_release=release, **DAY)
 
 
 def name(cycle, pass_number, start, crid="PID0", version="01"):
@@ -218,52 +218,79 @@ def test_find_files_selects_the_days_and_ignores_folders_and_other_files(tmp_pat
                 name(44, 108, "20260629T010000"),
                 name(44, 100, "20260628T230000"),  # starts the day before
                 name(44, 120, "20260630T000000"),  # starts the exclusive stop day
-                name(44, 121, "20260629T030000", crid="PID2"),  # another CRID's name
+                name(44, 121, "20260629T030000", crid="PID2"),  # another release's name
                 "notes.txt",
                 "SWOT_L2_LR_SSH_WindWave_bad_name.nc",
             ],
-            "PGD0": [name(1, 5, "20260629T020000", crid="PGD0")],  # another CRID's folder
+            "PGD0": [name(1, 5, "20260629T020000", crid="PGD0")],
+            "PID2": [name(44, 122, "20260629T040000", crid="PID2")],  # another release
+            "PIC2": [name(44, 111, "20260629T070000", crid="PIC2")],  # not a D release
             "PID0/OLD": [name(44, 108, "20260629T010000")],  # sub-folder: ignored
         },
     )
-    assert [p.name for p in find_files(recipe)] == [name(44, 108, "20260629T010000")]
+    assert [p.name for p in find_files(recipe)] == sorted(
+        [name(44, 108, "20260629T010000"), name(1, 5, "20260629T020000", crid="PGD0")]
+    )
 
 
-@pytest.mark.parametrize("crid", ["PID0", "PID2"])
-def test_find_files_reads_only_the_recipe_crid(tmp_path, crid):
+def test_find_files_prefers_the_ground_reprocessing_of_a_pass(tmp_path):
+    from soba_matchups.adapters.swot import find_files
+
+    # A pass in PGD2 and PID2 (same processor) is read from PGD2, even with a lower version.
+    recipe = tree(
+        tmp_path,
+        {
+            "PID2": [
+                name(59, 130, "20260629T010000", crid="PID2", version="03"),
+                name(59, 131, "20260629T020000", crid="PID2"),
+            ],
+            "PGD2": [name(59, 130, "20260629T010000", crid="PGD2", version="01")],
+        },
+        release="D2",
+    )
+    assert [p.name for p in find_files(recipe)] == sorted(
+        [
+            name(59, 130, "20260629T010000", crid="PGD2", version="01"),
+            name(59, 131, "20260629T020000", crid="PID2"),
+        ]
+    )
+
+
+@pytest.mark.parametrize("release", ["D0", "D2"])
+def test_find_files_reads_only_the_recipe_release(tmp_path, release):
     from soba_matchups.adapters.swot import find_files
 
     # AVISO moved the forward processing from PID0 to PID2 at cycle 059 pass 130: that pass is in
-    # both folders, and each run reads its own CRID only.
+    # both releases, and each run reads its own release only.
     files = {
         "PID0": [name(59, 129, "20260629T000000"), name(59, 130, "20260629T010000")],
         "PID2": [name(59, 130, "20260629T010000", crid="PID2")],
     }
     expected = {
-        "PID0": [name(59, 129, "20260629T000000"), name(59, 130, "20260629T010000")],
-        "PID2": [name(59, 130, "20260629T010000", crid="PID2")],
+        "D0": [name(59, 129, "20260629T000000"), name(59, 130, "20260629T010000")],
+        "D2": [name(59, 130, "20260629T010000", crid="PID2")],
     }
-    assert [p.name for p in find_files(tree(tmp_path, files, crid))] == expected[crid]
+    assert [p.name for p in find_files(tree(tmp_path, files, release))] == expected[release]
 
 
 def test_find_files_reports_missing_folders_and_empty_days(tmp_path):
     from soba_matchups.adapters.swot import find_files
 
-    with pytest.raises(ValueError, match="No PID2 folder"):
-        find_files(tree(tmp_path, {"PID0": []}, crid="PID2"))
+    with pytest.raises(ValueError, match="No PGD2 or PID2 folder"):
+        find_files(tree(tmp_path, {"PID0": []}, release="D2"))
     with pytest.raises(ValueError, match="No SWOT files starting"):
         find_files(tree(tmp_path / "second", {"PID0": [name(44, 108, "20260101T010000")]}))
 
 
-def test_swot_label_ends_with_the_crid_read():
+def test_swot_label_ends_with_the_release_read():
     from soba_matchups.adapters.swot import product_suffix
     from soba_matchups.config import REFERENCE_PRODUCTS
 
     assert REFERENCE_PRODUCTS[("karin", "swot", "2km")][2] == "PODAAC_SWOT_KARIN_L2_WINDWAVE"
-    assert product_suffix([{"version": "PID2_01"}, {"version": "PID2_01"}]) == "_PID2"
-    # file versions vary within a day; the label names the CRID only
-    assert product_suffix([{"version": "PID0_01"}, {"version": "PID0_03"}]) == "_PID0"
-    with pytest.raises(ValueError, match="several CRIDs"):
+    # ground and forward processing of one release, mixed file versions: the label names the release
+    assert product_suffix([{"version": "PGD2_01"}, {"version": "PID2_03"}]) == "_D2"
+    assert product_suffix([{"version": "PID0_01"}]) == "_D0"
+    with pytest.raises(ValueError, match="several releases"):
         product_suffix([{"version": "PID0_01"}, {"version": "PID2_01"}])
 
 
@@ -289,17 +316,17 @@ def test_swot_end_to_end_matches_cells_by_line_time_and_footprint(local_recipe):
         .replace('reference_root = "reference"', 'reference_root = "swot"')
         .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 60")
         .replace('output_dir = "result"', 'output_dir = "swot_result"')
-        + 'swot_crid = "PID0"\n'
+        + 'swot_release = "D0"\n'
     )
     assert main(["run", "--recipe", str(swot_recipe)]) == 0
     result = root / "swot_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["reference_product"] == "PODAAC_SWOT_KARIN_L2_WINDWAVE_PID0"
+    assert manifest["reference_product"] == "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0"
     assert manifest["reference_versions"] == ["PID0_01"]
     assert manifest["rules"]["policy"] == "swot_local_ocn_imagette_v1"
     assert "swh_karin" in manifest["units"] and "wind_direction_to" not in manifest["units"]
     items = sorted((result / "items").glob("*.json"))
-    suffix = "__IMG001__PODAAC_SWOT_KARIN_L2_WINDWAVE_PID0.json"
+    suffix = "__IMG001__PODAAC_SWOT_KARIN_L2_WINDWAVE_D0.json"
     assert items and all(i.name.endswith(suffix) for i in items)
     item = json.loads(items[0].read_text())
     props = item["properties"]
@@ -349,7 +376,7 @@ def swot_recipe_with_files(local_recipe, empty=True, corrupt=True, good=True):
         .replace('reference_root = "reference"', 'reference_root = "swot"')
         .replace("time_tolerance_minutes = 1", "time_tolerance_minutes = 60")
         .replace('output_dir = "result"', 'output_dir = "swot_result"')
-        + 'swot_crid = "PID0"\n'
+        + 'swot_release = "D0"\n'
     )
     return recipe
 

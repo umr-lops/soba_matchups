@@ -435,7 +435,7 @@ def test_buoy_end_to_end_matches_every_source_and_records_the_selection(local_re
     assert main(["run", "--recipe", str(recipe)]) == 0
     result = root / "buoy_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["schema_version"] == 17
+    assert manifest["schema_version"] == 18
     assert manifest["reference_product"] == "INSITU_NDBC_TAO_CMEMS_WIND"
     assert manifest["rules"]["policy"] == "buoy_local_ocn_imagette_v1"
     assert manifest["reference_selection"]["ncei_land_stations_left_out"] == ["bura1"]

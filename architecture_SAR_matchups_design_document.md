@@ -62,6 +62,22 @@ is not taken for a period without SM acquisitions. The SM path was tested on the
 `output_dir` must not exist. The tool writes a temporary folder and renames it, so a
 run is complete or absent. An imagette without a match produces no Item.
 
+The tool writes only `output_dir`; where that folder sits is the caller's choice. The production
+runs (Airflow DAGs) use one tree for every reference, one run folder per reference collection,
+day, SAR product type and SAR mode:
+
+```
+<root>/<reference>/<collection>/<YYYY-MM-DD>/<product_type>/<mode>/   = output_dir
+    swot/d0/2025-02-03/ocn/wv/      SWOT KaRIn release D0 (PGD0 + PID0), WV L2 OCN
+    swot/d2/2026-11-20/ocn/iw/      SWOT KaRIn release D2 (PGD2 + PID2), IW L2 OCN
+    scat/hscat/2025-02-03/grd/iw/   HSCAT, IW L1 GRD
+    alti/cci/2025-02-03/ocn/wv/     CCI altimeters, WV L2 OCN
+```
+
+`<collection>` is the SWOT release (`d0`, `d2`, recipe `swot_release` in lower case), the
+scatterometer family (`hscat`, `ascat`) or the altimeter product (`cci`, `cmems`).
+`<product_type>` and `<mode>` are the recipe `product_type` and `sar_mode` in lower case.
+
 ## 3. File naming
 
 ```
@@ -93,7 +109,7 @@ Product label by recipe:
 | `ascat` / `metop-b` / `12.5km` | `KNMI_ASCAT_METOPB_12P5KM` |
 | `ascat` / `metop-b` / `5.7km` | `KNMI_ASCAT_METOPB_5P7KM` |
 | `ascat` / `metop-c` / `12.5km` | `KNMI_ASCAT_METOPC_12P5KM` |
-| `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_<CRID>`, for example `PODAAC_SWOT_KARIN_L2_WINDWAVE_PID2`: the processing level the run read (recipe key `swot_crid`); the file version, which varies within a day, is in `reference_version` |
+| `karin` / `swot` / `2km` | `PODAAC_SWOT_KARIN_L2_WINDWAVE_<release>`, for example `PODAAC_SWOT_KARIN_L2_WINDWAVE_D2`: the release the run read (recipe key `swot_release`); the CRID (`PGD2`, `PID2`) and file version of each granule are in `reference_version` |
 | `alti` / `cci` / `l2p` | `ESACCI_SEASTATE_L2P_V<release>`, for example `ESACCI_SEASTATE_L2P_V5` (all CCI altimeter missions of the root) |
 | `alti` / `cmems` / `l3` | `CMEMS_WAV_L3_ALTI_VAVH` (all CMEMS altimeter missions of the root; no release in the label) |
 | `buoy` / `ndbc-tao-cmems` / `point` | `INSITU_NDBC_TAO_CMEMS_WIND` (NDBC buoys, TAO moorings and the CMEMS in situ buoys in neither) |
@@ -432,12 +448,14 @@ and its `ContentDate` interval. The dateline is not a footprint boundary: a cell
 recorded, never used to filter. Where a reference differs:
 
 - **SWOT:** the time test is made on each line's time (shared by the line's pixels) and the
-  footprint test on each pixel's centre. A run reads one processing level, the recipe key
-  `swot_crid` (`PGD0`, `PID0`, `PGD2` or `PID2`), from the folder of that name under
-  `reference_root`: one file per cycle and pass, the highest version number. AVISO moved the
-  forward processing from PID0 to PID2 at cycle 059 pass 130 (2026-11-17), so a pass can be in
-  two levels; each level is matched by its own run, into its own output folder, and the levels
-  stay apart (Item names end with the level, file versions are in `reference_version`).
+  footprint test on each pixel's centre. A run reads one release, the recipe key
+  `swot_release` (`D0` or `D2`), from the folders `PG<release>` (ground reprocessing) and
+  `PI<release>` (forward processing) under `reference_root`, either of which may be missing:
+  one file per cycle and pass, from `PG` when the pass is in both (same processor), then the
+  highest version number. Releases are never mixed: AVISO moved the forward processing from
+  PID0 to PID2 at cycle 059 pass 130 (2026-11-17), so a pass can be in D0 and in D2, and each
+  release is matched by its own run into its own folder (section 2). The CRID and version of
+  each granule are in `reference_version`, for example `PGD2_01` or `PID2_01`.
 - **ALTI (CCI and CMEMS):** all points inside the footprint are kept. If none is inside, the
   tool keeps one point: among those within 30 km of the imagette's OSW cell centre (for an IW or
   EW scene, the centroid of its footprint) and inside
@@ -479,8 +497,10 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 17: SWOT runs read one processing level (`recipe.swot_crid`), which ends
-  the SWOT label (`PODAAC_SWOT_KARIN_L2_WINDWAVE_PID2`, was `..._D0`). Since 16, the manifest
+  `schema_version` is 18: SWOT runs read one release (`recipe.swot_release`, D0 or D2, ground
+  processing preferred over forward), which ends the SWOT label
+  (`PODAAC_SWOT_KARIN_L2_WINDWAVE_D2`); schema 17 read one CRID (`swot_crid`, label `..._PID2`).
+  Since 16, the manifest
   gives `sar_mode`, and IW, EW and SM runs write one Item per scene. Since 15, point values may be text or true/false, and granule groups may carry fields
   of their own (`reference_platform`). In IW, EW and SM runs, `discovery.imagettes_unavailable`
   lists scenes (one entry per SAFE whose measurement file the archive lacks) and

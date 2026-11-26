@@ -35,10 +35,11 @@ UNITS = {
     "wind_speed_karin": "m s-1",
     "wind_speed_karin_2": "m s-1",
 }
-# A run reads one processing level (recipe key swot_crid, one of config.SWOT_CRIDS) from the folder
-# of that name under reference_root, where the files sit flat. AVISO moved the forward processing
-# from PID0 to PID2 at cycle 059 pass 130 (2026-11-17); that pass is in both folders, and each
-# run keeps its own.
+# A run reads one release (recipe key swot_release, D0 or D2) from two folders under
+# reference_root, where the files sit flat: PG<release> (ground reprocessing) and PI<release>
+# (forward processing), the same processor. A pass in both is read from PG. AVISO moved the
+# forward processing from PID0 to PID2 at cycle 059 pass 130 (2026-11-17).
+PROCESSING = ("PG", "PI")  # preference order within a release
 _NAME = re.compile(
     r"SWOT_L2_LR_SSH_WindWave_(?P<cycle>\d{3})_(?P<pass>\d{3})_(?P<start>\d{8}T\d{6})"
     r"_(?P<end>\d{8}T\d{6})_(?P<crid>[A-Z0-9]{4})_(?P<version>\d{2})\.nc"
@@ -58,24 +59,32 @@ def _clock(token):
 
 
 def find_files(recipe):
-    """List the SWOT files to read: one per (cycle, pass), the highest version, in the days.
+    """List the SWOT files to read: one per (cycle, pass), in the days.
 
-    Only regular files directly inside the folder of the recipe's CRID are looked at;
-    sub-folders and names that do not follow the SWOT naming are ignored.
+    Only regular files directly inside the PG<release> and PI<release> folders are looked at
+    (either may be missing); sub-folders and names that do not follow the SWOT naming are
+    ignored. A pass in both folders is read from PG (the reprocessing); within a folder the
+    highest version is read.
     """
-    folder = recipe.reference_root / recipe.swot_crid
-    if not folder.is_dir():
-        raise ValueError(f"No {recipe.swot_crid} folder in {recipe.reference_root}")
+    folders = [recipe.reference_root / (p + recipe.swot_release) for p in PROCESSING]
+    if not any(folder.is_dir() for folder in folders):
+        names = " or ".join(folder.name for folder in folders)
+        raise ValueError(f"No {names} folder in {recipe.reference_root}")
     chosen = {}
-    with os.scandir(folder) as entries:
-        for entry in entries:
-            match = _NAME.fullmatch(entry.name)
-            if match is None or match["crid"] != folder.name or not entry.is_file():
-                continue
-            key = (match["cycle"], match["pass"])
-            known = chosen.get(key)
-            if known is None or match["version"] > known[0]:
-                chosen[key] = (match["version"], Path(entry.path), match["start"])
+    for rank, folder in enumerate(folders):
+        if not folder.is_dir():
+            continue
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                match = _NAME.fullmatch(entry.name)
+                if match is None or match["crid"] != folder.name or not entry.is_file():
+                    continue
+                key = (match["cycle"], match["pass"])
+                # Lower rank (PG) first, then the higher version.
+                order = (-rank, match["version"])
+                known = chosen.get(key)
+                if known is None or order > known[0]:
+                    chosen[key] = (order, Path(entry.path), match["start"])
     selected = sorted(
         path
         for _, path, start in chosen.values()
@@ -89,15 +98,16 @@ def find_files(recipe):
 
 
 def product_suffix(refs):
-    """Return "_<CRID>" for the product label, for example "_PID2".
+    """Return "_<release>" for the product label, for example "_D2".
 
-    A run reads one CRID, so every file shares it. The file version (PID2_01, PID0_03, ...) varies
-    within a day and is recorded per granule group in reference_version, not in the label.
+    A run reads one release, from its ground (PG) and forward (PI) folders. The CRID and the file
+    version (PGD2_01, PID2_01, PID0_03, ...) vary within a day; they are recorded per granule
+    group in reference_version, not in the label.
     """
-    crids = {ref["version"].split("_")[0] for ref in refs}
-    if len(crids) != 1:
-        raise ValueError(f"SWOT files of several CRIDs in one run: {sorted(crids)}")
-    return "_" + crids.pop()
+    releases = {ref["version"].split("_")[0][2:] for ref in refs}
+    if len(releases) != 1:
+        raise ValueError(f"SWOT files of several releases in one run: {sorted(releases)}")
+    return "_" + releases.pop()
 
 
 def read_reference(path, *, expected_source, expected_resolution):

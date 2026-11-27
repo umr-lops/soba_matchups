@@ -29,7 +29,7 @@ from shapely.ops import unary_union
 
 from .output import file_identity
 from .sar_angles import _signed_area
-from .sar_metadata import _utc
+from .sar_metadata import _utc, decode_safe_name
 
 logger = logging.getLogger(__name__)
 IMAGETTE_MAPPING = "parquet_polygon_number_equals_file_suffix_after_dateline_merge"
@@ -47,7 +47,9 @@ CUT_EDGE_TOLERANCE = 1e-6
 CUT_LATITUDE_TOLERANCE = 1e-3
 # The SAFE name each run reads, per mode and product type: L2 OCN for every mode, L1 SLC for WV.
 # SM names carry the beam (S1 to S6) where the others carry the mode.
-_PRODUCT_TOKENS = {"OCN": "OCN__2[A-Z]", "SLC": "SLC__1[A-Z]"}
+# Standard products only (class S). CDSE also lists annotation (A), calibration (C) and noise (N)
+# products, the annotation ones next to their standard twins during the S1D commissioning.
+_PRODUCT_TOKENS = {"OCN": "OCN__2S", "SLC": "SLC__1S"}
 PRODUCT_TYPES = {"WV": ("OCN", "SLC"), "IW": ("OCN",), "EW": ("OCN",), "SM": ("OCN",)}
 # Archive level and folder suffix of each product type.
 _ARCHIVE_FOLDER = {"OCN_": ("L2", "OCN__2S"), "SLC_": ("L1", "SLC__1S")}
@@ -502,6 +504,8 @@ def discover_parquet(
                 seen.add(name)
                 count += 1
                 try:
+                    # A name the run cannot decode leaves that product out, not the whole run.
+                    decode_safe_name(name)
                     content = _loads(row["ContentDate"])
                     overlaps = _utc(content["Start"]) < last and _utc(content["End"]) > first
                 except (ValueError, KeyError, TypeError) as exc:

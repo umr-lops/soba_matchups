@@ -256,7 +256,7 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     assert main(["run", "--recipe", str(scenes)]) == 0
     result = scenes.parent / "iw_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 19
+    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 20
     assert manifest["rules"]["imagette_mapping"] == sp.SCENE_MAPPING
     assert manifest["sar_angles"]["errors"] == []
     names = sorted(p.name for p in (result / "items").iterdir())
@@ -835,3 +835,26 @@ def test_slice_published_twice_is_one_slice_for_the_motion():
         ("a", "a_twin", "b", "c", "c_twin"), "descending"
     )
     assert "d" not in motion and "d_twin" not in motion
+
+
+def test_partial_dual_polarization_names_decode():
+    for pol, polarizations, co in (("HH", "HH", "HH"), ("VV", "VV", "VV"), ("HV", "HV", "HH")):
+        name = IW_NAME.replace("_OCN__2SDV_", f"_OCN__2S{pol}_")
+        fields = decode_safe_name(name)
+        assert (fields["polarizations"], fields["polarization"]) == (polarizations, co)
+    # WV is single polarization only.
+    with pytest.raises(ValueError, match="Unsupported"):
+        decode_safe_name(IW_NAME.replace("_IW_", "_WV_").replace("2SDV", "2SVV"))
+
+
+def test_an_undecodable_name_skips_that_product_not_the_run(scenes):
+    """A name the run cannot decode (here a made-up polarization) is listed in safes_skipped."""
+    table = pq.read_table(next((scenes.parent / "parquet").iterdir())).to_pylist()
+    odd = dict(table[0])
+    odd["Name"] = IW_NAME.replace("2SDV", "2SXV").replace("_0001.SAFE", "_0009.SAFE")
+    write_day(scenes.parent / "parquet", [*table, odd])
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    manifest = json.loads((scenes.parent / "iw_result" / "manifest.json").read_text())
+    assert manifest["stac_items"] == 2
+    skipped = manifest["discovery"]["safes_skipped"]
+    assert [s["safe"] for s in skipped] == [odd["Name"]] and "Unsupported" in skipped[0]["reason"]

@@ -65,6 +65,7 @@ class Recipe:
     swot_release: str | None = None
     product_type: str = "OCN"
     sar_mode: str = "WV"
+    sar_archive_layout: str = "mpc"
 
     def resolved(self):
         """Return the recipe as plain values that can be written to JSON."""
@@ -97,7 +98,10 @@ def load_recipe(path, day=None):
     optional = {"sar_archive_root", "sar_parquet_root"}
     # The distance-to-coast grid is a file, and a run goes on without it. The CMEMS in situ root
     # belongs to the buoy reference only (INSTRUMENT_KEYS), checked below.
-    extra = {"distance_to_coast_file", "product_type", "sar_mode", *INSTRUMENT_KEYS}
+    extra = {
+        "distance_to_coast_file", "product_type", "sar_mode", "sar_archive_layout",
+        *INSTRUMENT_KEYS,
+    }
     required = set(Recipe.__dataclass_fields__) - {"path"} - optional - extra
     unknown = set(data) - required - optional - extra
     if unknown or required - set(data):
@@ -132,6 +136,18 @@ def load_recipe(path, day=None):
     # SLC is read per WV imagette; IW, EW and SM scenes are OCN products only.
     if mode != "WV" and data["product_type"] != "OCN":
         raise ValueError(f"product_type {data['product_type']!r} is only read for sar_mode WV")
+    # Where the SAFEs of sar_archive_root are filed (sar_parquet.ARCHIVE_LAYOUTS). The provider
+    # tree holds IW and EW L2 OCN only, and is read through the daily parquet files.
+    layout = data.setdefault("sar_archive_layout", "mpc")
+    if layout not in ("mpc", "provider"):
+        raise ValueError("sar_archive_layout must be 'mpc' or 'provider'")
+    if layout == "provider" and (
+        "sar_parquet_root" not in data or data["product_type"] != "OCN" or mode == "WV"
+    ):
+        raise ValueError(
+            "sar_archive_layout 'provider' holds IW and EW OCN products: it needs "
+            "sar_mode IW or EW, product_type OCN and sar_parquet_root"
+        )
     # Dates may be TOML dates or exact YYYY-MM-DD strings.
     for key in ["start_date", "stop_date"]:
         value = data[key]

@@ -51,7 +51,11 @@ Set ``sar_mode = "IW"``, ``"EW"`` or ``"SM"`` (the default is ``"WV"``) to match
 StripMap OCN products instead; every example recipe lists the key. These read the SAR side from
 the daily parquet files only,
 so ``sar_parquet_root`` is required; ``sar_archive_root``, if set, is asked only which
-measurement file each SAFE holds. An IW, EW or SM product is one scene: one Item per matched SAFE,
+measurement file each SAFE holds. Set ``sar_archive_layout = "provider"`` with
+``sar_archive_root = "/legacy/project/cersat/public/provider/esa/satellite/l2"`` to link the
+SAFEs of the CERSAT provider tree, which holds every IW and EW OCN product (the default
+``"mpc"`` is the MPC cache layout). IW, EW and SM Items carry no ``imagette_index`` and their
+points no ``sar_wv_subswath``. An IW, EW or SM product is one scene: one Item per matched SAFE,
 named ``<SAFE>__<PRODUCT>.json``, from the product's footprint and ``ContentDate``. The SAR
 angles come from ``s1-geometry`` at each point; its EW model is markedly rougher than its IW
 one at high latitude (see the design document). Every mode reads ``daily_parquet_files_v2``,

@@ -6,6 +6,8 @@ import pytest
 
 from soba_matchups.output import imagette_item, item_filename, publish
 
+FIELDS = {"mode": "WV", "polarization": "VV", "polarizations": "VV", "producttype": "OCN"}
+
 
 def item():
     product = {"Id": "parent", "Name": "S1A_WV_OCN__2SSV_EXAMPLE.SAFE"}
@@ -33,7 +35,7 @@ def item():
         }
     ]
     return imagette_item(
-        product, imagette, {"mode": "WV", "polarization": "VV", "producttype": "OCN"}, groups, 60
+        product, imagette, FIELDS, groups, 60
     )
 
 

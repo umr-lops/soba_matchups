@@ -12,10 +12,12 @@ from soba_matchups.adapters import SkippableReference, alti, buoy, scat, swot
 from soba_matchups.config import REFERENCE_PRODUCTS
 from soba_matchups.distance_to_coast import DistanceToCoast
 from soba_matchups.sar_angles import (
-    FIELDS as ANGLE_FIELDS,
+    SCENE_FIELDS as SCENE_ANGLE_FIELDS,
+    WV_FIELDS as WV_ANGLE_FIELDS,
     add_angles,
     add_scene_angles,
     library_version,
+    scene_geometry_problem,
     subswath_of,
 )
 from soba_matchups.output import file_identity, imagette_item, publish
@@ -61,10 +63,17 @@ SCENE_LIMITATIONS = [
     " pieces joined) and its ContentDate. Points are not tied to a subswath.",
     "The pass direction comes from the motion of the datatake's consecutive slices, else from"
     " the catalogue orbitDirection; disagreements are listed in"
-    " discovery.orbit_direction_corrected. A direction from the catalogue alone (a lone slice,"
-    " or near the turning latitude) is not checked: if it is wrong, near and far range swap and"
-    " the angles are wrong with no warning. Those products are listed in"
-    " discovery.orbit_direction_from_catalogue, and each Item gives sar_orbit_direction_source.",
+    " discovery.orbit_direction_corrected. A direction from the catalogue alone (a lone slice)"
+    " is checked only against s1-geometry's reading of the footprint; those products are listed"
+    " in discovery.orbit_direction_from_catalogue, and each Item gives"
+    " sar_orbit_direction_source.",
+    "A scene whose along-track and cross-track edges cannot be told apart is rejected (no Item)"
+    " and listed with its reason in scenes_rejected_geometry: at the turning latitude (its"
+    " datatake neighbours give no direction), a footprint without four corners, no pass"
+    " direction, a lone slice (direction from the catalogue alone) whose footprint tilt gives the"
+    " other direction or is ambiguous, or a footprint s1-geometry reads in another direction.",
+    "sar_distance_to_along_track_edge and sar_distance_to_cross_track_edge are great-circle"
+    " distances (sphere of radius 6371008.8 m) to the footprint's straight-lined edges.",
     "The last slice of a datatake past the turning latitude takes its direction from its previous"
     " step alone, which can be the other side of the turn.",
     "SAR angles are s1-geometry's at each point: heading from the latitude and the pass"
@@ -189,6 +198,7 @@ def run(recipe):
             recipe.sar_archive_root,
             mode=recipe.sar_mode,
             product_type=recipe.product_type,
+            archive_layout=recipe.sar_archive_layout,
         )
         verify_inputs = verify_parquet_inputs
     else:
@@ -198,6 +208,8 @@ def run(recipe):
         verify_inputs = verify_local_inputs
     items, diagnostics = [], []
     angle_errors = []
+    # IW, EW and SM scenes with candidate cells whose edges cannot be told apart: no Item.
+    scenes_rejected = []
     seen_points = set()
     imagettes_processed = duplicate_points = safes_without_candidates = 0
     candidate_cells = 0
@@ -236,6 +248,16 @@ def run(recipe):
         if not any(len(indices) for _, indices in candidates):
             safes_without_candidates += 1
             continue
+        if recipe.sar_mode != "WV":
+            problem = scene_geometry_problem(
+                product.get("SceneRing"),
+                product.get("OrbitDirection"),
+                product.get("Turning"),
+                product.get("OrbitDirectionSource"),
+            )
+            if problem:
+                scenes_rejected.append({"safe": product["Name"], "reason": problem})
+                continue
         pending = []
         for imagette in product["Imagettes"]:
             imagettes_processed += 1
@@ -353,7 +375,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 18,
+        "schema_version": 19,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -397,6 +419,9 @@ def run(recipe):
         "safes_without_imagettes": len(discovery.get("safes_without_imagettes", [])),
         "safes_skipped": len(discovery.get("safes_skipped", [])),
         "imagettes_unavailable": len(discovery.get("imagettes_unavailable", [])),
+        # IW, EW and SM: scenes with candidate cells rejected because their along-track and
+        # cross-track edges cannot be told apart (turning latitude, footprint, direction).
+        "scenes_rejected_geometry": scenes_rejected,
         "stac_items": len(items),
         "matchup_imagette_cell_rows": len(seen_points),
         "duplicate_associations_discarded": duplicate_points,
@@ -421,7 +446,12 @@ def run(recipe):
             "ref_lon": "degrees_east, [-180,180)",
             "ref_lat": "degrees_north",
             "sar_distance_to_coast": "km, from the NASA GSFC grid; null when it is unavailable",
-            **{k: f"{v}; null when unavailable" for k, v in ANGLE_FIELDS.items()},
+            **{
+                k: f"{v}; null when unavailable"
+                for k, v in (
+                    WV_ANGLE_FIELDS if recipe.sar_mode == "WV" else SCENE_ANGLE_FIELDS
+                ).items()
+            },
         },
         "limitations": [
             *sar_limitations,

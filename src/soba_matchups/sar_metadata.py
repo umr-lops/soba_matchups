@@ -29,6 +29,8 @@ _NC_PATTERN = re.compile(
     r"(s1[abcd])-wv[12]-ocn-(vv|hh)-(\d{8}t\d{6})-(\d{8}t\d{6})-"
     r"(\d{6})-([0-9a-f]{6})-(\d{3})\.nc"
 )
+# The polarizations of a product, from the two letters of its SAFE name.
+_POLARIZATIONS = {"SV": "VV", "SH": "HH", "DV": "VV+VH", "DH": "HH+HV"}
 _SAFE = "{http://www.esa.int/safe/sentinel-1.0}"
 _GML = "{http://www.opengis.net/gml}"
 
@@ -38,7 +40,8 @@ def decode_safe_name(name):
 
     An SM (StripMap) name carries its beam, S1 to S6, where the others carry the mode; the mode
     returned is then SM. polarization is the co-polarization (VV or HH), the one an OCN product
-    is processed on; a dual-polarization product (DV, DH) also has its cross-polarization channel.
+    is processed on and its WV file names carry; polarizations is the product's own, from the
+    SAFE name: VV, HH, or for a dual-polarization product (DV, DH) VV+VH or HH+HV.
     """
     match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
     if (
@@ -50,6 +53,7 @@ def decode_safe_name(name):
     return {
         "mode": "SM" if match["mode"][0] == "S" else match["mode"],
         "polarization": "VV" if match["pol"][1] == "V" else "HH",
+        "polarizations": _POLARIZATIONS[match["pol"]],
         "producttype": match["producttype"],
     }
 

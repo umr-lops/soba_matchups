@@ -116,9 +116,14 @@ def imagette_item(product, imagette, fields, groups, tolerance):
             "sarmatchup:n_coloc_points": len(differences),
             "sarmatchup:delta_diff_time_minutes_min": min(differences),
             "sarmatchup:delta_diff_time_minutes_max": max(differences),
-            "sarmatchup:imagette_index": imagette["index"],
+            # The imagette number exists for WV only: an IW, EW or SM Item is the whole scene.
+            **(
+                {"sarmatchup:imagette_index": imagette["index"]}
+                if fields["mode"] == "WV"
+                else {}
+            ),
             "sarmatchup:measurement_name": imagette["Name"],
-            "sarmatchup:polarization": fields["polarization"],
+            "sarmatchup:polarization": fields["polarizations"],
             # IW, EW and SM scenes: the pass direction the angles rest on, and where it came
             # from ("slice motion" or "catalogue"); a catalogue-only direction is unchecked.
             **(

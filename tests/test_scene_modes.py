@@ -1,6 +1,7 @@
 """IW, EW and SM scenes from the daily parquet files: names, footprints, discovery, angles, runs."""
 
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -132,7 +133,9 @@ def scenes(local_recipe):
 
 
 def test_iw_and_ew_names_decode_to_their_mode_and_co_polarization():
-    assert decode_safe_name(IW_NAME) == {"mode": "IW", "polarization": "VV", "producttype": "OCN"}
+    assert decode_safe_name(IW_NAME) == {
+        "mode": "IW", "polarization": "VV", "polarizations": "VV+VH", "producttype": "OCN"
+    }
     name = "S1B_EW_OCN__2SDH_20210104T045624_20210104T045733_025000_02F9B2_980A.SAFE"
     assert decode_safe_name(name)["mode"] == "EW"
     assert decode_safe_name(name)["polarization"] == "HH"
@@ -140,7 +143,10 @@ def test_iw_and_ew_names_decode_to_their_mode_and_co_polarization():
     with pytest.raises(ValueError, match="Unsupported"):
         decode_safe_name(IW_NAME.replace("_IW_", "_WV_"))
     # StripMap is named by its beam; "SM" itself never appears in a SAFE name.
-    assert decode_safe_name(SM_NAME) == {"mode": "SM", "polarization": "VV", "producttype": "OCN"}
+    assert decode_safe_name(SM_NAME) == {
+        "mode": "SM", "polarization": "VV", "polarizations": "VV+VH", "producttype": "OCN"
+    }
+    assert decode_safe_name(IW_NAME.replace("SDV", "SDH"))["polarizations"] == "HH+HV"
     with pytest.raises(ValueError, match="Unsupported"):
         decode_safe_name(IW_NAME.replace("_IW_", "_SM_"))
     with pytest.raises(ValueError, match="Unsupported"):
@@ -234,7 +240,7 @@ def test_scene_angles_follow_the_iw_and_ew_models_and_skip_outside_points():
     near, middle, far = (p["sar_incidence_angle"] for p in across)
     assert 29 < near < 34 < middle < 41 < far < 46.5
     assert 0 < points[0]["sar_ground_heading_uncertainty"] < 5
-    assert points[0]["sar_wv_subswath"] is None
+    assert "sar_wv_subswath" not in points[0]
     assert all(points[1][key] is None for key in sar_angles.FIELDS)
     ew = [{"ref_lon": 24.0, "ref_lat": 64.2}]
     assert sar_angles.add_scene_angles("ew", EW, "EW", ew, "descending") is None
@@ -250,7 +256,7 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     assert main(["run", "--recipe", str(scenes)]) == 0
     result = scenes.parent / "iw_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 18
+    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 19
     assert manifest["rules"]["imagette_mapping"] == sp.SCENE_MAPPING
     assert manifest["sar_angles"]["errors"] == []
     names = sorted(p.name for p in (result / "items").iterdir())
@@ -260,8 +266,8 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     first = json.loads((result / "items" / names[0]).read_text())
     props = first["properties"]
     assert props["sarmatchup:sar_instrument_mode"] == "IW"
-    assert props["sarmatchup:imagette_index"] == 1
-    assert props["sarmatchup:polarization"] == "VV"
+    assert "sarmatchup:imagette_index" not in props
+    assert props["sarmatchup:polarization"] == "VV+VH"  # SDV
     # A lone slice: its direction is the catalogue's, unchecked, and said so.
     assert props["sarmatchup:sar_orbit_direction"] == "ascending"
     assert props["sarmatchup:sar_orbit_direction_source"] == "catalogue"
@@ -274,7 +280,7 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     # Ascending and right-looking: the western point (0.0) is nearer range than the eastern one.
     by_lon = {round(p["ref_lon"], 3): p["sar_incidence_angle"] for p in points}
     assert by_lon[0.0] < by_lon[0.5] - 2
-    assert all(p["sar_wv_subswath"] is None for p in points)
+    assert all("sar_wv_subswath" not in p for p in points)
     dateline = json.loads((result / "items" / names[1]).read_text())
     points = [p for g in dateline["properties"]["sarmatchup:matchups"] for p in g["points"]]
     assert sorted({round(p["ref_lon"], 6) for p in points}) == [-180.0, -179.9, 179.9]
@@ -681,3 +687,107 @@ def test_corner_roles_survive_a_heading_model_off_by_40_degrees(monkeypatch):
         skewed = lambda lat, d, b=bias: real(lat, d) + b  # noqa: E731
         monkeypatch.setattr(s1_geometry, "heading_from_lat", skewed)
         assert sar_angles.library_ring(IW, "ascending") == expected
+
+
+def test_provider_layout_links_the_ocn_file_among_the_subswath_osw_files(scenes):
+    """The CERSAT provider tree, where recent IW SAFEs also hold one OSW file per subswath."""
+    root = scenes.parent
+    safe = root / "provider/sentinel-1a/c-band_sar/s1a_iw_ocn__2s/2026/180" / IW_NAME
+    (safe / "measurement").mkdir(parents=True)
+    stamp = "20260629t120000-20260629t120025-000001-000001"
+    for name in [f"s1a-iw{k}-osw-vv-{stamp}-00{k}.nc" for k in (1, 2, 3)] + [
+        f"s1a-iw-ocn-vv-{stamp}-001.nc"
+    ]:
+        (safe / "measurement" / name).write_bytes(b"")
+    text = scenes.read_text().replace('sar_archive_root = "esa"', 'sar_archive_root = "provider"')
+    scenes.write_text(text + 'sar_archive_layout = "provider"\n')
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    result = root / "iw_result"
+    manifest = json.loads((result / "manifest.json").read_text())
+    assert manifest["discovery"]["sar_archive_layout"] == "provider"
+    assert manifest["imagettes_unavailable"] == 1  # the dateline scene is not in the tree
+    name = IW_NAME.removesuffix(".SAFE") + "__KNMI_HSCAT_HY2B_25KM.json"
+    item = json.loads((result / "items" / name).read_text())
+    href = (safe / "measurement" / f"s1a-iw-ocn-vv-{stamp}-001.nc").as_uri()
+    assert item["assets"]["sar"]["href"] == href
+    assert item["properties"]["sarmatchup:measurement_name"] == href.rsplit("/", 1)[1]
+
+
+def test_provider_layout_paths_and_measurement_choice(tmp_path):
+    folder = sp._safe_folder(tmp_path, IW_NAME, "OCN", "provider")
+    assert folder.relative_to(tmp_path).parts == (
+        "sentinel-1a", "c-band_sar", "s1a_iw_ocn__2s", "2026", "180", IW_NAME,
+    )
+    assert sp._safe_folder(tmp_path, IW_NAME).parts[-6:-4] == ("L2", "IW")
+    with pytest.raises(ValueError, match="layout"):
+        sp._safe_folder(tmp_path, IW_NAME, layout="other")
+    osw = ["s1c-iw1-osw-vv-x-001.nc", "s1c-iw2-osw-vv-x-002.nc"]
+    assert sp._scene_measurement([*osw, "s1c-iw-ocn-vv-x-001.nc"]) == "s1c-iw-ocn-vv-x-001.nc"
+    assert sp._scene_measurement(["s1a-iw-ocn-hh-x-001.nc"]) == "s1a-iw-ocn-hh-x-001.nc"
+    assert sp._scene_measurement(osw) is None
+    assert sp._scene_measurement([]) is None
+
+
+def test_provider_layout_is_for_iw_and_ew_ocn_from_the_parquet_files(local_recipe, scenes):
+    assert load_recipe(scenes).sar_archive_layout == "mpc"
+    scenes.write_text(scenes.read_text() + 'sar_archive_layout = "provider"\n')
+    assert load_recipe(scenes).sar_archive_layout == "provider"
+    local_recipe.write_text(local_recipe.read_text() + 'sar_archive_layout = "provider"\n')
+    with pytest.raises(ValueError, match="IW and EW OCN"):
+        load_recipe(local_recipe)
+    local_recipe.write_text(local_recipe.read_text().replace('"provider"', '"elsewhere"'))
+    with pytest.raises(ValueError, match="must be 'mpc' or 'provider'"):
+        load_recipe(local_recipe)
+
+
+def test_edge_distances_are_great_circle_metres():
+    # 1 degree of longitude on the equator, from a meridian arc beside it.
+    one_degree = sar_angles.EARTH_RADIUS_M * np.pi / 180
+    assert sar_angles.edge_distance_m((1, 0), (0, -1), (0, 1)) == pytest.approx(one_degree)
+    # Past the end of the arc the distance is to the nearer end.
+    assert sar_angles.edge_distance_m((0, 3), (0, -1), (0, 1)) == pytest.approx(2 * one_degree)
+    # At the centre of an IW scene: half the swath to a range line.
+    ring = sar_angles.library_ring(IW, "ascending")
+    along, across = sar_angles.edge_distances_m(ring, *np.mean(IW, axis=0))
+    assert along == pytest.approx(500 * sar_angles.across_track_km(ring), rel=0.01)
+    assert 50e3 < across < along
+    # Next to the first-near corner both distances are small.
+    first_near = ring[1]
+    near_corner = sar_angles.edge_distances_m(ring, first_near[0] + 0.01, first_near[1] + 0.01)
+    assert max(near_corner) < 2e3
+
+
+def test_scene_geometry_problems():
+    assert sar_angles.scene_geometry_problem(IW, "ascending") is None
+    assert "turning" in sar_angles.scene_geometry_problem(IW, "ascending", turning=True)
+    assert "3 corners" in sar_angles.scene_geometry_problem(IW[:3], "ascending")
+    assert "no pass direction" in sar_angles.scene_geometry_problem(IW, None)
+
+
+def test_iw_points_carry_edge_distances_and_turning_scenes_are_rejected(scenes):
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    result = scenes.parent / "iw_result"
+    manifest = json.loads((result / "manifest.json").read_text())
+    assert "sar_distance_to_along_track_edge" in manifest["units"]
+    assert manifest["scenes_rejected_geometry"] == []
+    name = IW_NAME.removesuffix(".SAFE") + "__KNMI_HSCAT_HY2B_25KM.json"
+    item = json.loads((result / "items" / name).read_text())
+    points = [p for g in item["properties"]["sarmatchup:matchups"] for p in g["points"]]
+    for p in points:
+        assert 0 < p["sar_distance_to_along_track_edge"] < 140e3  # footprint ~270 km wide here
+        assert 0 < p["sar_distance_to_cross_track_edge"] < 140e3
+    # A second slice of the same datatake at the same latitude: neither gives a direction, both
+    # are at the turning latitude and rejected.
+    table = pq.read_table(next((scenes.parent / "parquet").iterdir())).to_pylist()
+    twin = dict(table[0])
+    twin["Name"] = IW_NAME.replace("T120000_20260629T120025", "T120025_20260629T120050")
+    twin["ContentDate"] = json.dumps(
+        {"Start": f"{DAY}T12:00:25.2Z", "End": f"{DAY}T12:00:50Z"}
+    )
+    write_day(scenes.parent / "parquet", [*table, twin])
+    shutil.rmtree(result)
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    manifest = json.loads((result / "manifest.json").read_text())
+    rejected = {r["safe"]: r["reason"] for r in manifest["scenes_rejected_geometry"]}
+    assert IW_NAME in rejected and "turning" in rejected[IW_NAME]
+    assert not (result / "items" / name).exists()

@@ -15,7 +15,13 @@ You can also use the **sar_parquet_root** flag in recipes to specify the path fo
 IW, EW and SM **require** it: everything the tool knows about such a product comes from its row
 in the CDSE daily parquet files (name, `ContentDate`, `GeoFootprint`) and from `s1-geometry`.
 The archive, when `sar_archive_root` is also set, is only asked which measurement file the SAFE
-holds; no SAR file is opened.
+holds; no SAR file is opened. Its layout is `sar_archive_layout`: `mpc` (default), the MPC
+Sentinel-1 cache, `sentinel-1x/L2/<mode>/<S1x>_<mode>_OCN__2S/<year>/<doy>/<SAFE>`, or
+`provider`, the CERSAT provider tree of the ESA L2 products
+(`/legacy/project/cersat/public/provider/esa/satellite/l2`), which holds every IW and EW OCN
+product: `sentinel-1x/c-band_sar/s1x_<iw|ew>_ocn__2s/<year>/<doy>/<SAFE>` (IW and EW runs only).
+Recent IW SAFEs hold one OSW file per subswath (`s1c-iw1-osw-...`, `iw2`, `iw3`) next to the
+scene's `s1c-iw-ocn-...` file: the scene's file is the one `-ocn-` file.
 
 One collection per product type and mode:
 
@@ -28,7 +34,7 @@ One collection per product type and mode:
 | `sar-matchups-wv-slc` | Sentinel-1 WV L1 SLC | imagette | not implemented |
 
 An IW, EW or SM OCN product holds one measurement file for the whole scene, so the scene plays
-the part of the imagette: one Item per matched SAFE, with `imagette_index` 1. A run reads one
+the part of the imagette: one Item per matched SAFE, with no `imagette_index`. A run reads one
 mode, so a run or a collection never mixes WV imagettes with scenes, or scenes of two modes.
 
 Every mode reads the SAR metadata from `daily_parquet_files_v2`. That folder **does not list SM
@@ -209,9 +215,9 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:lib_version` | `soba_matchups` version. |
 | `sarmatchup:n_coloc_points` | Number of retained associations across all granule groups. |
 | `sarmatchup:delta_diff_time_minutes_min`, `_max` | Smallest and largest signed point time difference in this Item. |
-| `sarmatchup:imagette_index` | Imagette number from the measurement file name. `1` for an IW, EW or SM scene. |
-| `sarmatchup:measurement_name` | Name of the imagette NetCDF file. For an IW, EW or SM scene, the one NetCDF file of the archive SAFE, or `null` when the archive was not given or does not hold it. |
-| `sarmatchup:polarization` | `VV` or `HH`: the co-polarization, the one an OCN product is processed on. A dual-polarization IW, EW or SM product (`DV`, `DH` in the SAFE name) also has a cross-polarization channel. |
+| `sarmatchup:imagette_index` | Imagette number from the measurement file name. WV only: absent from an IW, EW or SM Item (a scene). |
+| `sarmatchup:measurement_name` | Name of the imagette NetCDF file. For an IW, EW or SM scene, the `-ocn-` NetCDF file of the archive SAFE, or `null` when the archive was not given or does not hold it. |
+| `sarmatchup:polarization` | The product's polarizations, from the SAFE name: `VV` or `HH` (single, `SV` / `SH`; every WV product), `VV+VH` or `HH+HV` (dual, `DV` / `DH`; most IW and EW products). An OCN product is processed on the co-polarization (the first one). |
 | `sarmatchup:sar_orbit_direction` | IW, EW and SM only: the pass direction the SAR angles rest on, `ascending` or `descending` (`null` when there is none). Absent from WV Items. |
 | `sarmatchup:sar_orbit_direction_source` | IW, EW and SM only: `slice motion` (checked by the datatake's other slices) or `catalogue` (the `orbitDirection` attribute alone, unchecked; see section 8). Absent from WV Items. |
 | `sarmatchup:matchups` | Array of granule groups, section 7. |
@@ -256,7 +262,9 @@ can have two groups in an Item: a CMEMS history file and its monthly file, for e
 | `sar_elevation_angle` | Off-nadir angle measured at the satellite, in degrees (the ESA OCN convention), from `s1-geometry`. It is not an angle at the point, and it is not 90 degrees minus the incidence. |
 | `sar_ground_heading` | Heading of the SAR track at the point, in degrees clockwise from north, from `s1-geometry`. |
 | `sar_ground_heading_uncertainty` | Uncertainty of the heading in degrees. WV: the p95 of the `s1-geometry` WV heading error, 0.4. IW, EW, SM: the library's latitude- and hemisphere-dependent uncertainty of its IW heading model at the point. |
-| `sar_wv_subswath` | WV subswath of the imagette the model placed the point on, 1 or 2. It agrees with the `wv1` or `wv2` in the measurement file name; a point where it or the imagette number disagrees gets null angles. `null` for IW, EW and SM. |
+| `sar_wv_subswath` | WV subswath of the imagette the model placed the point on, 1 or 2. It agrees with the `wv1` or `wv2` in the measurement file name; a point where it or the imagette number disagrees gets null angles. WV only: absent from IW, EW and SM points, which the incidence and elevation angles place across the swath. |
+| `sar_distance_to_along_track_edge` | IW, EW, SM only. Distance in m from the point to the nearer along-track edge of the scene footprint (the near or far range line), great circle on a sphere of radius 6371008.8 m, the footprint's edges straight between its four corners. `null` when the point has no SAR angles' geometry (outside the footprint). |
+| `sar_distance_to_cross_track_edge` | IW, EW, SM only. Distance in m from the point to the nearer cross-track edge (the first or last line), computed the same way. |
 
 The SAR angle fields (incidence, elevation, heading, heading uncertainty, subswath) are null for a point outside the product footprint, which the library does not extrapolate to (for example an altimeter point kept by the 30 km fallback of section 8), and for every point of a product the library cannot handle. The run goes on in both cases; the products it could not handle are listed in `manifest.sar_angles.errors`.
 
@@ -347,9 +355,15 @@ Everything comes from the daily parquet rows (`Name`, `GeoFootprint`, `Attribute
   mission, mode and datatake id in the SAFE name, ordered by start time) follow the flight, so
   the footprint moves north on an ascending pass and south on a descending one. Steps of
   0.05° of latitude or less are ignored. A product takes the direction of its remaining steps
-  to the slices before and after it when they agree; one step is enough. Otherwise (a lone
-  slice, or a slice between opposite steps at the turning latitude) it takes the catalogue's
-  `orbitDirection`.
+  to the slices before and after it when they agree; one step is enough. A lone slice takes
+  the catalogue's `orbitDirection`. A slice with neighbours whose steps disagree or are all
+  below 0.05° is at the **turning latitude** and is rejected (see below).
+- **Rejected scenes:** a scene with candidate cells whose along-track and cross-track edges
+  cannot be told apart gives no Item, and is listed with its reason in the manifest's
+  `scenes_rejected_geometry`: at the turning latitude, a footprint that is not four corners
+  (for example clipped by the catalogue at 85.05° N), no pass direction (a lone slice with no
+  catalogue direction), or a footprint `s1-geometry` reads in another direction than the pass
+  once its corners are in the library's order (some SM scenes).
   - The manifest counts the first case (`discovery.orbit_direction_from_slices`), lists every
     product whose catalogue direction disagreed (`discovery.orbit_direction_corrected`) and every
     product whose direction is the catalogue's alone (`discovery.orbit_direction_from_catalogue`).
@@ -383,8 +397,7 @@ Everything comes from the daily parquet rows (`Name`, `GeoFootprint`, `Attribute
     uses yet another order.
   - With the standard order the library read the right direction on every S1B IW and EW scene of
     January 2021, and on 72 of 80 SM scenes.
-  - When it still reads another direction (some SM scenes), incidence and elevation are left
-    null and the heading is kept.
+  - When it still reads another direction (some SM scenes), the scene is rejected.
   - The same happens when the swath width the library measured differs by more than 10% from the
     scene's own across-track width (near-range line to far-range line): it then measured across
     the wrong pair of edges. On the runs below this flagged 6 of about 1,870 products, 5 of
@@ -394,9 +407,11 @@ Everything comes from the daily parquet rows (`Name`, `GeoFootprint`, `Attribute
   added vertices dropped, so the library gets the four corners. In the Item geometry a cut at
   179.99999° is moved onto 180° exactly, so the matching joins the two pieces across the
   dateline and a point on the cut is not lost in the gap between them. A footprint that is not four
-  corners (for example clipped by the catalogue at 85.05° N) gets a heading but no incidence.
-- **Without any direction:** the footprint's order is read by the library as it is, and the
-  product is reported. A "turning" reading gives no angles.
+  corners is rejected.
+- **Distances to the edges:** with the corners in that order, each point inside the footprint
+  gets its great-circle distance in metres to the nearer range line
+  (`sar_distance_to_along_track_edge`) and to the nearer of the first and last lines
+  (`sar_distance_to_cross_track_edge`).
 - All these cases are listed in `manifest.sar_angles.errors`.
 
 Checked against the `owiIncidenceAngle` and `owiHeading` grids of the OCN files the archive
@@ -497,7 +512,14 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 18: SWOT runs read one release (`recipe.swot_release`, D0 or D2, ground
+  `schema_version` is 19: IW, EW and SM Items no longer carry `sarmatchup:imagette_index` nor,
+  on their points, `sar_wv_subswath` (WV only); their points give
+  `sar_distance_to_along_track_edge` and `sar_distance_to_cross_track_edge` (m);
+  `sarmatchup:polarization` is the product's own (`VV+VH` for an `SDV` product, was `VV`);
+  scenes whose along-track and cross-track edges cannot be told apart (turning latitude, not
+  four corners, no pass direction, footprint read in another direction) are rejected and listed
+  in `scenes_rejected_geometry` with their reason; `sar_archive_layout` selects the provider
+  tree, recorded in `discovery.sar_archive_layout`. Since 18, SWOT runs read one release (`recipe.swot_release`, D0 or D2, ground
   processing preferred over forward), which ends the SWOT label
   (`PODAAC_SWOT_KARIN_L2_WINDWAVE_D2`); schema 17 read one CRID (`swot_crid`, label `..._PID2`).
   Since 16, the manifest

@@ -22,8 +22,22 @@ FIELDS = {
         "degrees: WV, p95 of the s1-geometry WV heading error; IW/EW/SM, the library's"
         " latitude-dependent uncertainty of its IW heading model"
     ),
-    "sar_wv_subswath": "WV subswath of the imagette, 1 or 2; null for IW, EW and SM",
 }
+# IW, EW and SM points also give their distance to the scene's edges: to the nearer range line
+# (near or far, along the flight) and to the nearer of the first and last lines (across it).
+SCENE_FIELDS = {
+    **FIELDS,
+    "sar_distance_to_along_track_edge": (
+        "m, great-circle distance to the nearer along-track edge (near or far range line)"
+    ),
+    "sar_distance_to_cross_track_edge": (
+        "m, great-circle distance to the nearer cross-track edge (first or last line)"
+    ),
+}
+EARTH_RADIUS_M = 6371008.8
+# WV points also say which subswath the imagette is on; IW, EW and SM points do not carry the
+# field (their incidence and elevation angles place them across the swath).
+WV_FIELDS = {**FIELDS, "sar_wv_subswath": "WV subswath of the imagette, 1 or 2"}
 # The model fits the track on the two subswath chains, so it needs two imagettes of each.
 MIN_IMAGETTES = 4
 # Largest relative difference between the swath width the library measured and the scene's own
@@ -71,7 +85,7 @@ def add_angles(name, footprint, points, expected=None):
     cannot handle leaves null on all its points.
     """
     for point in points:
-        point.update({key: None for key in FIELDS})
+        point.update({key: None for key in WV_FIELDS})
     if not points:
         return None
     if footprint is None:
@@ -198,6 +212,70 @@ def library_ring(corners, direction):
     return _corners_by_role(corners, direction)
 
 
+def scene_geometry_problem(corners, orbit_direction, turning=False):
+    """Return why a scene's along-track and cross-track edges cannot be told apart, or None.
+
+    They can when the footprint has four corners, the pass direction is known, the slice is not
+    at the turning latitude (turning: neighbouring slices of its datatake give no direction),
+    and s1-geometry reads the pass direction from the corners put in its order for that
+    direction (library_ring). A scene with a problem is rejected: no Item.
+    """
+    if turning:
+        return "turning latitude: the neighbouring slices give no pass direction"
+    if not corners or len(corners) != 4:
+        return f"the footprint has {len(corners or [])} corners, not 4"
+    if orbit_direction is None:
+        return "no pass direction (no neighbouring slice and none in the catalogue)"
+    try:
+        from s1_geometry import orbit_direction_from_ring
+
+        seen_as = orbit_direction_from_ring(library_ring(corners, orbit_direction))
+    except Exception as exc:  # the library raises ValueError
+        return f"the footprint cannot be read: {type(exc).__name__}: {exc}"
+    if seen_as != orbit_direction:
+        return f"the footprint reads as {seen_as} while the pass is {orbit_direction}"
+    return None
+
+
+def _unit(lon, lat):
+    """Unit vector of a (lon, lat) point on the sphere."""
+    lon, lat = np.radians(lon), np.radians(lat)
+    return np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+
+
+def _angle(u, v):
+    """Angle in radians between two unit vectors."""
+    return float(np.arctan2(np.linalg.norm(np.cross(u, v)), np.dot(u, v)))
+
+
+def edge_distance_m(point, a, b):
+    """Great-circle distance in m from a (lon, lat) point to the arc from a to b."""
+    p, u, v = _unit(*point), _unit(*a), _unit(*b)
+    normal = np.cross(u, v)
+    normal /= np.linalg.norm(normal)
+    across = float(np.arcsin(np.clip(np.dot(p, normal), -1, 1)))
+    foot = p - np.dot(p, normal) * normal
+    foot /= np.linalg.norm(foot)
+    # The foot of the perpendicular lies on the arc when it splits the arc in two.
+    if abs(_angle(u, foot) + _angle(foot, v) - _angle(u, v)) < 1e-9:
+        return EARTH_RADIUS_M * abs(across)
+    return EARTH_RADIUS_M * min(_angle(p, u), _angle(p, v))
+
+
+def edge_distances_m(ring, lon, lat):
+    """Distances in m from a point to the nearer along-track and cross-track edges of a
+    library ring (last-near, first-near, first-far, last-far)."""
+    last_near, first_near, first_far, last_far = ring
+    point = (lon, lat)
+    along = min(
+        edge_distance_m(point, last_near, first_near), edge_distance_m(point, first_far, last_far)
+    )
+    across = min(
+        edge_distance_m(point, first_near, first_far), edge_distance_m(point, last_far, last_near)
+    )
+    return along, across
+
+
 def add_scene_angles(name, corners, mode, points, orbit_direction=None):
     """Write the SAR angle fields of an IW, EW or SM scene's points in place; return the problem.
 
@@ -216,7 +294,7 @@ def add_scene_angles(name, corners, mode, points, orbit_direction=None):
     extrapolate). Any other failure is reported once per product.
     """
     for point in points:
-        point.update({key: None for key in FIELDS})
+        point.update({key: None for key in SCENE_FIELDS})
     if not points:
         return None
     if not corners:
@@ -267,6 +345,10 @@ def add_scene_angles(name, corners, mode, points, orbit_direction=None):
         if not trusted:
             untrusted += 1
             continue
+        if orbit_direction is not None:  # ring is then in the library's order
+            along, across = edge_distances_m(ring, lon, point["ref_lat"])
+            point["sar_distance_to_along_track_edge"] = _finite(along)
+            point["sar_distance_to_cross_track_edge"] = _finite(across)
         try:
             angles = estimate_incidence_elevation(
                 ring, ref_lon=lon, ref_lat=point["ref_lat"], mode=mode, **beam

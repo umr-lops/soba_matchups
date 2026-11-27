@@ -51,6 +51,12 @@ _PRODUCT_TOKENS = {"OCN": "OCN__2[A-Z]", "SLC": "SLC__1[A-Z]"}
 PRODUCT_TYPES = {"WV": ("OCN", "SLC"), "IW": ("OCN",), "EW": ("OCN",), "SM": ("OCN",)}
 # Archive level and folder suffix of each product type.
 _ARCHIVE_FOLDER = {"OCN_": ("L2", "OCN__2S"), "SLC_": ("L1", "SLC__1S")}
+# SAR archive layouts (recipe sar_archive_layout). mpc: the MPC Sentinel-1 cache,
+# sentinel-1x/<L2|L1>/<mode>/<S1x>_<mode>_<OCN__2S|SLC__1S>/<year>/<doy>/<SAFE>. provider: the
+# CERSAT provider tree of the ESA L2 products, which holds IW and EW OCN only,
+# sentinel-1x/c-band_sar/s1x_<mode>_ocn__2s/<year>/<doy>/<SAFE>
+# (root /legacy/project/cersat/public/provider/esa/satellite/l2).
+ARCHIVE_LAYOUTS = ("mpc", "provider")
 # A vertex this close (degrees) to +-180 or 0 is one the catalogue's cutting added; halves are
 # sometimes cut at 179.99999 instead of 180.
 SCENE_GRID_DEGREES = 1e-4
@@ -153,9 +159,10 @@ def _geometry(rings):
     return mapping(shapes[0] if len(shapes) == 1 else unary_union(shapes))
 
 
-def _safe_folder(archive_root, name, product_type=None):
-    """Return the archive folder of a SAFE, read from its name:
-    sentinel-1x/<L2|L1>/<mode>/<S1x>_<mode>_<OCN__2S|SLC__1S>/<year>/<doy>/<name>.
+def _safe_folder(archive_root, name, product_type=None, layout="mpc"):
+    """Return the archive folder of a SAFE, read from its name, in the given layout
+    (ARCHIVE_LAYOUTS): mpc, sentinel-1x/<L2|L1>/<mode>/<S1x>_<mode>_<OCN__2S|SLC__1S>/<year>/<doy>/
+    <name>; provider, sentinel-1x/c-band_sar/s1x_<mode>_ocn__2s/<year>/<doy>/<name>.
 
     product_type, when given, must be the name's own.
     """
@@ -165,6 +172,19 @@ def _safe_folder(archive_root, name, product_type=None):
     if product_type is not None and product_type != name[7:10]:
         raise ValueError(f"{name} is not a {product_type} product")
     start = datetime.strptime(name.split("_")[5], "%Y%m%dT%H%M%S")
+    if layout == "provider":
+        if suffix != "OCN__2S":
+            raise ValueError(f"The provider archive holds L2 OCN products only, not {name}")
+        return (
+            archive_root
+            / ("sentinel-1" + mission[-1].lower())
+            / "c-band_sar"
+            / f"{mission}_{mode}_{suffix}".lower()
+            / start.strftime("%Y/%j")
+            / name
+        )
+    if layout != "mpc":
+        raise ValueError(f"Unknown SAR archive layout {layout!r}")
     return (
         archive_root
         / ("sentinel-1" + mission[-1].lower())
@@ -275,7 +295,19 @@ def slice_motion(slices):
     return motion
 
 
-def _scene(row, archive_root):
+def _scene_measurement(files):
+    """Return the scene's measurement file among a SAFE's measurement files, or None.
+
+    A SAFE holds one <mission>-<mode>-ocn-... file, and recent IW ones also hold one OSW file per
+    subswath (s1c-iw1-osw-..., iw2, iw3): the ocn file is the scene's.
+    """
+    ocn = [f for f in files if "-ocn-" in f]
+    if len(ocn) == 1:
+        return ocn[0]
+    return files[0] if len(files) == 1 and not ocn else None
+
+
+def _scene(row, archive_root, layout="mpc"):
     """Build the product record of one IW, EW or SM OCN row: one scene and its availability."""
     name = row["Name"]
     content = _loads(row["ContentDate"])
@@ -290,13 +322,13 @@ def _scene(row, archive_root):
          for x, y in ring]
         for ring in rings
     ]
-    folder = _safe_folder(archive_root, name) if archive_root is not None else None
+    folder = _safe_folder(archive_root, name, layout=layout) if archive_root is not None else None
     files = (
         sorted(p.name for p in (folder / "measurement").glob("*.nc"))
         if folder is not None and (folder / "measurement").is_dir()
         else None
     )
-    measurement = files[0] if files is not None and len(files) == 1 else None
+    measurement = _scene_measurement(files) if files is not None else None
     if folder is None:
         href = name
     elif measurement is None:
@@ -319,7 +351,7 @@ def _scene(row, archive_root):
         reason = (
             "SAFE not in the archive"
             if files is None
-            else f"{len(files)} measurement files in the archive SAFE, expected 1"
+            else f"no single ocn file among the {len(files)} measurement files of the SAFE"
         )
         unavailable.append({"safe": name, "index": 1, "name": None, "reason": reason})
     return {
@@ -336,7 +368,7 @@ def _scene(row, archive_root):
     }, unavailable
 
 
-def _product(row, archive_root, product_type="OCN"):
+def _product(row, archive_root, product_type="OCN", layout="mpc"):
     """Build the product record of one parquet row, with its imagettes and their availability."""
     name = row["Name"]
     listed = _loads(row["WVImagettes"])
@@ -352,7 +384,11 @@ def _product(row, archive_root, product_type="OCN"):
     if numbers != list(range(1, len(numbers) + 1)):
         raise ValueError("Imagette numbers are not 1..N")
     product_id = "local_" + hashlib.sha256(name.encode()).hexdigest()
-    folder = _safe_folder(archive_root, name, product_type) if archive_root is not None else None
+    folder = (
+        _safe_folder(archive_root, name, product_type, layout)
+        if archive_root is not None
+        else None
+    )
     present = (
         {p.name for p in (folder / "measurement").iterdir()}
         if folder is not None and (folder / "measurement").is_dir()
@@ -404,6 +440,7 @@ def discover_parquet(
     sar_archive_root: Path | None = None,
     product_type: str = "OCN",
     mode: str = "WV",
+    archive_layout: str = "mpc",
 ) -> tuple[list[dict], dict]:
     """Read the daily parquet files of the covered days and return the products to match.
 
@@ -430,6 +467,7 @@ def discover_parquet(
         "product_type": product_type,
         "sar_parquet_root": str(parquet_root),
         "sar_archive_root": None if sar_archive_root is None else str(sar_archive_root),
+        "sar_archive_layout": archive_layout,
         "sar_mode": mode,
         "coverage_scope": "products listed in the selected daily parquet files",
         "safes_without_imagettes": [],
@@ -472,7 +510,7 @@ def discover_parquet(
                     continue
                 if mode != "WV":
                     try:
-                        product, unavailable = _scene(row, sar_archive_root)
+                        product, unavailable = _scene(row, sar_archive_root, archive_layout)
                     except (ValueError, KeyError, TypeError, GEOSException) as exc:
                         provenance["safes_skipped"].append({"safe": name, "reason": str(exc)})
                         continue
@@ -485,7 +523,9 @@ def discover_parquet(
                     )
                     continue
                 try:
-                    product, unavailable = _product(row, sar_archive_root, product_type)
+                    product, unavailable = _product(
+                        row, sar_archive_root, product_type, archive_layout
+                    )
                 except (ValueError, KeyError, TypeError) as exc:
                     provenance["safes_skipped"].append({"safe": name, "reason": str(exc)})
                     continue
@@ -498,6 +538,13 @@ def discover_parquet(
         # The pass direction: from slice motion when the datatake has a neighbouring slice,
         # else the catalogue's orbitDirection. Disagreements are listed.
         motion = slice_motion(slices)
+        # A slice with neighbours but no direction from them is at the turning latitude: its
+        # along-track and cross-track edges cannot be told apart, and the run rejects it.
+        turning = {
+            name for members in slices.values() if len(members) > 1 for _, name, _ in members
+        } - set(motion)
+        for product in products:
+            product["Turning"] = product["Name"] in turning
         provenance["orbit_direction_from_slices"] = 0
         provenance["orbit_direction_corrected"] = []
         # Products whose direction is the catalogue's alone, which nothing checks.

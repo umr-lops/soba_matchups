@@ -30,7 +30,7 @@ REFERENCE_PRODUCTS = {
     ("buoy", "ndbc-tao-cmems", "point"): ("Buoys", "point", "INSITU_NDBC_TAO_CMEMS_WIND"),
 }
 # SAR product types a run can read.
-SAR_PRODUCT_TYPES = ("OCN", "SLC")
+SAR_PRODUCT_TYPES = ("OCN", "SLC", "GRD")
 # Recipe keys that only one instrument takes, and that it requires. The *_root ones are folders.
 INSTRUMENT_KEYS = {"cmems_insitu_root": "buoy", "swot_release": "karin"}
 # SWOT releases a run can read, one per run (recipe key swot_release). Release D2 reads the
@@ -116,8 +116,8 @@ def load_recipe(path, day=None):
     data.setdefault("product_type", "OCN")
     if data["product_type"] not in SAR_PRODUCT_TYPES:
         raise ValueError(f"product_type must be one of {list(SAR_PRODUCT_TYPES)}")
-    if data["product_type"] == "SLC" and "sar_parquet_root" not in data:
-        raise ValueError("product_type SLC needs sar_parquet_root")
+    if data["product_type"] in ("SLC", "GRD") and "sar_parquet_root" not in data:
+        raise ValueError(f"product_type {data['product_type']} needs sar_parquet_root")
     product = (data["instrument"], data["platform"], data["resolution"])
     if any(not isinstance(v, str) for v in product) or product not in REFERENCE_PRODUCTS:
         raise ValueError("Unsupported reference instrument / platform / resolution combination")
@@ -134,8 +134,11 @@ def load_recipe(path, day=None):
     if mode != "WV" and "sar_parquet_root" not in data:
         raise ValueError(f"sar_mode {mode!r} needs sar_parquet_root (the daily parquet files)")
     # SLC is read per WV imagette; IW, EW and SM scenes are OCN products only.
-    if mode != "WV" and data["product_type"] != "OCN":
-        raise ValueError(f"product_type {data['product_type']!r} is only read for sar_mode WV")
+    # SLC is read per WV imagette; GRD per IW, EW or SM scene (WV has no GRD product).
+    if mode != "WV" and data["product_type"] == "SLC":
+        raise ValueError("product_type 'SLC' is only read for sar_mode WV")
+    if mode == "WV" and data["product_type"] == "GRD":
+        raise ValueError("product_type 'GRD' is only read for sar_mode IW, EW or SM")
     # Where the SAFEs of sar_archive_root are filed (sar_parquet.ARCHIVE_LAYOUTS). The provider
     # tree holds IW and EW L2 OCN only, and is read through the daily parquet files.
     layout = data.setdefault("sar_archive_layout", "mpc")

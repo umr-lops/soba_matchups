@@ -80,7 +80,7 @@ def test_run_writes_distance_on_every_point(local_recipe):
             np.arange(-90, 91)[:, None] + 100.0, 361, axis=1
         )
     points, manifest = _run(local_recipe, 'distance_to_coast_file = "coast.nc"\n')
-    assert points and manifest["schema_version"] == 20
+    assert points and manifest["schema_version"] == 21
     assert manifest["distance_to_coast"]["status"] == "ok"
     for point in points:
         assert point["sar_distance_to_coast"] == round(point["ref_lat"]) + 100.0

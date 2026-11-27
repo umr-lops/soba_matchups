@@ -256,7 +256,7 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     assert main(["run", "--recipe", str(scenes)]) == 0
     result = scenes.parent / "iw_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 20
+    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 21
     assert manifest["rules"]["imagette_mapping"] == sp.SCENE_MAPPING
     assert manifest["sar_angles"]["errors"] == []
     names = sorted(p.name for p in (result / "items").iterdir())
@@ -858,3 +858,55 @@ def test_an_undecodable_name_skips_that_product_not_the_run(scenes):
     assert manifest["stac_items"] == 2
     skipped = manifest["discovery"]["safes_skipped"]
     assert [s["safe"] for s in skipped] == [odd["Name"]] and "Unsupported" in skipped[0]["reason"]
+
+
+GRD_NAME = IW_NAME.replace("_OCN__2SDV_", "_GRDH_1SDV_")
+
+
+def test_grd_run_writes_one_item_per_scene_linking_the_safe_folder(scenes):
+    """IW GRD scenes: the GRD row is matched, its cloud-optimized copy is not read."""
+    table = pq.read_table(next((scenes.parent / "parquet").iterdir())).to_pylist()
+    grd = {**table[0], "Name": GRD_NAME}
+    cog = {**table[0], "Name": GRD_NAME.replace(".SAFE", "_COG.SAFE")}
+    write_day(scenes.parent / "parquet", [*table, grd, cog])
+    safe = scenes.parent / "esa/sentinel-1a/L1/IW/S1A_IW_GRDH_1S/2026/180" / GRD_NAME
+    (safe / "measurement").mkdir(parents=True)
+    scenes.write_text(scenes.read_text() + 'product_type = "GRD"\n')
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    result = scenes.parent / "iw_result"
+    manifest = json.loads((result / "manifest.json").read_text())
+    assert manifest["stac_items"] == 1 and manifest["imagettes_unavailable"] == 0
+    assert manifest["discovery"]["safes_found"] == 1  # the COG copy is not read
+    name = GRD_NAME.removesuffix(".SAFE") + "__KNMI_HSCAT_HY2B_25KM.json"
+    item = json.loads((result / "items" / name).read_text())
+    props = item["properties"]
+    assert props["sarmatchup:sar_product_type"] == "GRD"
+    assert props["sarmatchup:sar_instrument_mode"] == "IW"
+    assert item["assets"]["sar"]["href"] == safe.as_uri()
+    points = [p for g in props["sarmatchup:matchups"] for p in g["points"]]
+    assert points and all(p["sar_distance_to_along_track_edge"] > 0 for p in points)
+
+
+def test_grd_names_and_recipes():
+    fields = decode_safe_name(GRD_NAME)
+    assert (fields["producttype"], fields["mode"]) == ("GRD", "IW")
+    assert fields["polarizations"] == "VV+VH"
+    assert decode_safe_name(GRD_NAME.replace("_IW_GRDH_", "_EW_GRDM_"))["mode"] == "EW"
+    for bad in (
+        GRD_NAME.replace("_GRDH_1", "_GRDH_2"),  # GRD is level 1
+        IW_NAME.replace("_OCN__", "_OCNH_"),  # OCN has no resolution letter
+        GRD_NAME.replace("_IW_", "_WV_").replace("1SDV", "1SSV"),  # no WV GRD
+    ):
+        with pytest.raises(ValueError, match="Unsupported"):
+            decode_safe_name(bad)
+
+
+def test_grd_recipe_rules(local_recipe, scenes):
+    scenes.write_text(scenes.read_text() + 'product_type = "GRD"\n')
+    assert load_recipe(scenes).product_type == "GRD"
+    local_recipe.write_text(local_recipe.read_text() + 'product_type = "GRD"\n')
+    with pytest.raises(ValueError, match="needs sar_parquet_root|only read for sar_mode IW"):
+        load_recipe(local_recipe)
+    scenes.write_text(scenes.read_text() + 'sar_archive_layout = "provider"\n')
+    with pytest.raises(ValueError, match="provider"):
+        load_recipe(scenes)

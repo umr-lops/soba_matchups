@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
-    r"S1[ABCD]_(?P<mode>WV|IW|EW|S[1-6])_(?P<producttype>OCN|SLC)__"
+    r"S1[ABCD]_(?P<mode>WV|IW|EW|S[1-6])_(?P<producttype>OCN|SLC|GRD)(?P<resolution>[_HMF])_"
     r"(?P<level>[12])[A-Z](?P<pol>SV|SH|DV|DH|HH|VV|HV|VH)_"
     r"\d{8}T\d{6}_\d{8}T\d{6}_\d{6}_[0-9A-F]{6}_[0-9A-F]{4}\.SAFE"
 )
@@ -52,7 +52,9 @@ def decode_safe_name(name):
     match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
     if (
         match is None
-        or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]
+        or match["level"] != {"OCN": "2", "SLC": "1", "GRD": "1"}[match["producttype"]]
+        or (match["resolution"] == "_") != (match["producttype"] != "GRD")
+        or (match["mode"] == "WV" and match["producttype"] == "GRD")
         or (match["mode"] == "WV" and match["pol"][0] != "S")
     ):
         raise ValueError(f"Unsupported Sentinel-1 WV/IW/EW/SM SAFE name: {name!r}")

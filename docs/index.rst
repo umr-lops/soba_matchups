@@ -55,7 +55,11 @@ measurement file each SAFE holds. Set ``sar_archive_layout = "provider"`` with
 ``sar_archive_root = "/legacy/project/cersat/public/provider/esa/satellite/l2"`` to link the
 SAFEs of the CERSAT provider tree, which holds every IW and EW OCN product (the default
 ``"mpc"`` is the MPC cache layout). IW, EW and SM Items carry no ``imagette_index`` and their
-points no ``sar_wv_subswath``. An IW, EW or SM product is one scene: one Item per matched SAFE,
+points no ``sar_wv_subswath``. Set ``product_type = "GRD"`` to match the Level-1 GRD scenes
+(GRDH, GRDM, GRDF; their ``_COG`` copies are not read) instead of the OCN ones: same matching,
+one Item per GRD SAFE, its link the SAFE folder of the MPC cache (``sentinel-1x/L1/<mode>/
+<S1x>_<mode>_GRD<res>_1S/<year>/<doy>/``). GRD and OCN runs of the same days go to their own
+folders (``.../grd/iw`` and ``.../ocn/iw``). An IW, EW or SM product is one scene: one Item per matched SAFE,
 named ``<SAFE>__<PRODUCT>.json``, from the product's footprint and ``ContentDate``. The SAR
 angles come from ``s1-geometry`` at each point; its EW model is markedly rougher than its IW
 one at high latitude (see the design document). Every mode reads ``daily_parquet_files_v2``,

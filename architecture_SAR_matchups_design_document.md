@@ -6,9 +6,11 @@ STAC 1.0.0 Items and three run files.
 
 ## 1. Product types and collections
 
-The tool reads **Sentinel-1 Level-2 OCN products only (No support for SLC or GRD)**, in one of
-four acquisition modes chosen by the recipe key `sar_mode`: `WV` (the default), `IW`, `EW` or `SM`
-(StripMap, whose SAFE names carry the beam, `S1_` to `S6_`, instead of the mode).
+The tool reads **Sentinel-1 standard products of one type per run** (recipe key
+`product_type`): Level-2 OCN (the default), Level-1 SLC (WV imagettes only) or Level-1 GRD (IW,
+EW and SM scenes only), in one of four acquisition modes chosen by the recipe key `sar_mode`:
+`WV` (the default), `IW`, `EW` or `SM` (StripMap, whose SAFE names carry the beam, `S1_` to
+`S6_`, instead of the mode).
 Discovery rejects any other product type, and any product of another mode.
 
 You can also use the **sar_parquet_root** flag in recipes to specify the path for the daily parquets if you want to use only the SAR metadata for matchups.
@@ -29,6 +31,8 @@ One collection per product type and mode:
 | --- | --- | --- | --- |
 | `sar-matchups-wv-ocn` | Sentinel-1 WV L2 OCN | imagette | Items implemented; no collection document |
 | `sar-matchups-iw-ocn` | Sentinel-1 IW L2 OCN | scene (one SAFE) | Items implemented; no collection document |
+| `sar-matchups-iw-grd` | Sentinel-1 IW L1 GRD | scene (one SAFE) | Items implemented; no collection document |
+| `sar-matchups-ew-grd` | Sentinel-1 EW L1 GRD | scene (one SAFE) | Items implemented; no collection document |
 | `sar-matchups-ew-ocn` | Sentinel-1 EW L2 OCN | scene (one SAFE) | Items implemented; no collection document |
 | `sar-matchups-sm-ocn` | Sentinel-1 SM L2 OCN | scene (one SAFE) | Items implemented; no collection document |
 | `sar-matchups-wv-slc` | Sentinel-1 WV L1 SLC | imagette | not implemented |
@@ -534,7 +538,10 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 20: only standard products are read (class `S`: `OCN__2S`, `SLC__1S`);
+  `schema_version` is 21: `product_type = "GRD"` matches the IW, EW and SM Level-1 GRD
+  scenes (GRDH, GRDM, GRDF, standard class; the `_COG.SAFE` copies are not read), one Item
+  per GRD SAFE linking its SAFE folder in the MPC cache, `sarmatchup:sar_product_type` `GRD`.
+  Since 20, only standard products are read (class `S`: `OCN__2S`, `SLC__1S`);
   CDSE also lists annotation products (class `A`), next to their standard twins during the S1D
   commissioning (2025-11 to 2026-04), which gave duplicated Items. Names with a partial
   dual-polarization code (`HH`, `VV`, `HV`, `VH`: one channel of a dual-polarization acquisition,

@@ -49,10 +49,16 @@ CUT_LATITUDE_TOLERANCE = 1e-3
 # SM names carry the beam (S1 to S6) where the others carry the mode.
 # Standard products only (class S). CDSE also lists annotation (A), calibration (C) and noise (N)
 # products, the annotation ones next to their standard twins during the S1D commissioning.
-_PRODUCT_TOKENS = {"OCN": "OCN__2S", "SLC": "SLC__1S"}
-PRODUCT_TYPES = {"WV": ("OCN", "SLC"), "IW": ("OCN",), "EW": ("OCN",), "SM": ("OCN",)}
+# GRD: any resolution (H, M, F); its cloud-optimized copies (..._COG.SAFE) are left out.
+_PRODUCT_TOKENS = {"OCN": "OCN__2S", "SLC": "SLC__1S", "GRD": "GRD[HMF]_1S"}
+PRODUCT_TYPES = {
+    "WV": ("OCN", "SLC"), "IW": ("OCN", "GRD"), "EW": ("OCN", "GRD"), "SM": ("OCN", "GRD"),
+}
 # Archive level and folder suffix of each product type.
-_ARCHIVE_FOLDER = {"OCN_": ("L2", "OCN__2S"), "SLC_": ("L1", "SLC__1S")}
+_ARCHIVE_FOLDER = {
+    "OCN_": ("L2", "OCN__2S"), "SLC_": ("L1", "SLC__1S"),
+    "GRDH": ("L1", "GRDH_1S"), "GRDM": ("L1", "GRDM_1S"), "GRDF": ("L1", "GRDF_1S"),
+}
 # SAR archive layouts (recipe sar_archive_layout). mpc: the MPC Sentinel-1 cache,
 # sentinel-1x/<L2|L1>/<mode>/<S1x>_<mode>_<OCN__2S|SLC__1S>/<year>/<doy>/<SAFE>. provider: the
 # CERSAT provider tree of the ESA L2 products, which holds IW and EW OCN only,
@@ -69,7 +75,7 @@ def _pattern(mode, product_type):
     if product_type not in PRODUCT_TYPES.get(mode, ()):
         raise ValueError(f"Unsupported SAR mode / product type {mode!r} / {product_type!r}")
     beam = "S[1-6]" if mode == "SM" else mode
-    return re.compile(rf"S1[ABCD]_{beam}_{_PRODUCT_TOKENS[product_type]}")
+    return re.compile(rf"S1[ABCD]_{beam}_{_PRODUCT_TOKENS[product_type]}.*(?<!_COG\.SAFE)$")
 
 
 def _loads(text):
@@ -318,7 +324,12 @@ def _scene_measurement(files):
 
 
 def _scene(row, archive_root, layout="mpc"):
-    """Build the product record of one IW, EW or SM OCN row: one scene and its availability."""
+    """Build the product record of one IW, EW or SM OCN or GRD row: one scene and its
+    availability.
+
+    An OCN scene links its -ocn- measurement file. A GRD SAFE holds one image per polarization,
+    so its link is the SAFE folder and it is available when the archive holds that folder.
+    """
     name = row["Name"]
     content = _loads(row["ContentDate"])
     _utc(content["Start"]), _utc(content["End"])
@@ -338,7 +349,8 @@ def _scene(row, archive_root, layout="mpc"):
         if folder is not None and (folder / "measurement").is_dir()
         else None
     )
-    measurement = _scene_measurement(files) if files is not None else None
+    grd = name[7:10] == "GRD"
+    measurement = _scene_measurement(files) if files is not None and not grd else None
     if folder is None:
         href = name
     elif measurement is None:
@@ -354,13 +366,13 @@ def _scene(row, archive_root, layout="mpc"):
         "GeoFootprint": _geometry(rings),
         "Centre": centre(rings),
         "href": href,
-        "available": folder is None or measurement is not None,
+        "available": folder is None or (folder.is_dir() if grd else measurement is not None),
     }
     unavailable = []
     if not scene["available"]:
         reason = (
             "SAFE not in the archive"
-            if files is None
+            if files is None or grd
             else f"no single ocn file among the {len(files)} measurement files of the SAFE"
         )
         unavailable.append({"safe": name, "index": 1, "name": None, "reason": reason})

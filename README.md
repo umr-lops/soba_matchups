@@ -31,6 +31,33 @@ SAR-side keys. For IW, EW or SM, set `sar_mode = "IW"` (or `"EW"`, `"SM"`); thes
 SM products yet, so SM runs find none until its producer is fixed. `output_dir` must not exist yet. A finished run holds `items/` (the STAC files),
 `diagnostics.json`, `sar_metadata.json` and `manifest.json`.
 
+## Many days on Slurm (job arrays, turboblast)
+
+A per-day recipe has `{day}` in its `output_dir` (`start_date` / `stop_date` are then the
+default range). `listing` writes one task line per day whose output folder does not exist yet;
+`run-day` runs one of them, and skips a day already done (`--overwrite` replaces it, keeping the
+old folder until the new run succeeds) or without any reference file yet.
+[turboblast](https://github.com/umr-lops/turboblast) submits the lines as Slurm job arrays, under
+your own user id, with `scripts/slurm/soba_matchups_task.sh` as the task:
+
+```sh
+# output_dir = "/scale/.../soba_matchups/swot/d2/{day}/ocn/iw" in iw_d2.toml
+pixi run soba_matchups validate --recipe iw_d2.toml --day 2026-11-22   # check one day first
+pixi run soba_matchups listing --recipe iw_d0.toml >  tasks.txt
+pixi run soba_matchups listing --recipe iw_d2.toml --start 2026-11-16 >> tasks.txt
+export SOBA_MATCHUPS_SIF=/path/to/soba_matchups.sif   # unset: soba_matchups from PATH
+pixi run -e slurm turboblaster --listing-input tasks.txt \
+  --bash-slurm-exec scripts/slurm/soba_matchups_task.sh \
+  --timeout-min 30 --mem 4G --slurm-array-parallelism 30 --output-dir logs_soba
+pixi run -e slurm slurm-logs logs_soba/<timestamp>     # successes, failures and their causes
+```
+
+One task per day and recipe; listings of several recipes can be concatenated. Running the
+listing again after a failure lists only the days still missing. The `slurm` environment adds
+turboblast to the runtime; turboblaster blocks until every task ends, so run it in tmux/byobu.
+An IW day takes 1 – 1.5 min and under 1.5 GB (SWOT, 2026-11); a WV day longer: size `--timeout-min` and `--mem` on a
+few days first.
+
 ## Apptainer
 
 Build once with internet access. Running needs only local files. The image holds the

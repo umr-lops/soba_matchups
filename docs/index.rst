@@ -58,6 +58,18 @@ one at high latitude (see the design document). Every mode reads ``daily_parquet
 which does not list SM products yet (its producer drops them): until it does, an SM run finds no
 product and warns in the log and in ``discovery.warning``.
 
+Many days on Slurm
+------------------
+
+A per-day recipe has ``{day}`` in its ``output_dir``; ``start_date`` / ``stop_date`` give the
+default range. ``soba_matchups listing --recipe r.toml [--start D] [--stop D]`` prints one
+``run-day --recipe r.toml --day D`` line per day whose output folder does not exist yet, and
+``soba_matchups run-day --recipe r.toml --day D`` runs that day; it skips a day already done
+(``--overwrite`` replaces it, the old folder kept until the new run succeeds) or a day without
+any reference file. `turboblast <https://github.com/umr-lops/turboblast>`_ (pixi environment
+``slurm``) submits the lines as Slurm job arrays, with ``scripts/slurm/soba_matchups_task.sh`` as
+the task script (``SOBA_MATCHUPS_SIF`` selects the Apptainer image); see the README.
+
 Reference products
 ------------------
 

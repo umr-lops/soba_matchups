@@ -33,6 +33,7 @@ include = [
     "src",
     "tests",
     "examples",
+    "scripts",
     "README.md",
     "architecture_SAR_matchups_design_document.md",
     "LICENSE",
@@ -67,11 +68,18 @@ sphinx = "==9.1.1"
 [tool.pixi.feature.docs.tasks]
 docs = "sphinx-build -W -b html docs docs/_build/html"
 
+[tool.pixi.feature.slurm.pypi-dependencies]
+# turboblast submits the `soba_matchups listing` lines as Slurm job arrays (submitit);
+# only needed where turboblaster runs, not in the image.
+turboblast = ">=2026.10.7"
+
 [tool.pixi.environments]
 # default: runtime + dev tools (tests, lint, build). prod: runtime only, what the Apptainer
-# image ships. docs: Sphinx alone (the docs do not import the package).
+# image ships. slurm: runtime + turboblast, to submit job arrays (scripts/slurm/).
+# docs: Sphinx alone (the docs do not import the package).
 default = { features = ["dev"], solve-group = "default" }
 prod = { features = [], solve-group = "default" }
+slurm = { features = ["slurm"], solve-group = "default" }
 docs = { features = ["docs"], no-default-feature = true }
 
 [tool.pixi.tasks]

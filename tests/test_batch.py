@@ -90,3 +90,32 @@ def test_cli_day_arguments(per_day_recipe):
     with pytest.raises(SystemExit):
         main(["listing", "--recipe", str(per_day_recipe), "--day", "2026-06-29"])
     assert main(["validate", "--recipe", str(per_day_recipe), "--day", "2026-06-29"]) == 0
+
+
+def test_day_whose_reference_files_are_all_unusable_is_skipped(per_day_recipe, monkeypatch, capsys):
+    """An empty SWOT granule alone on a day: found, then skipped as unusable."""
+    from soba_matchups.pipeline import NoUsableReference
+
+    def unusable(recipe):
+        raise NoUsableReference("No usable reference file for the requested days (1 skipped)")
+
+    monkeypatch.setattr(batch, "run", unusable)
+    assert run_day(per_day_recipe, DAY) is None
+    assert "skipped: No usable reference file" in capsys.readouterr().out
+    assert not (per_day_recipe.parent / "out/2026-06-29").exists()
+    assert main(["run-day", "--recipe", str(per_day_recipe), "--day", "2026-06-29"]) == 0
+    # With --overwrite, the day's previous output is put back.
+    monkeypatch.undo()
+    run_day(per_day_recipe, DAY)
+    out = per_day_recipe.parent / "out/2026-06-29/iw"
+    before = (out / "manifest.json").read_text()
+    monkeypatch.setattr(batch, "run", unusable)
+    assert run_day(per_day_recipe, DAY, overwrite=True) is None
+    assert (out / "manifest.json").read_text() == before
+    assert [p.name for p in out.parent.iterdir()] == ["iw"]
+
+
+def test_cli_run_still_fails_when_no_reference_file_is_usable(per_day_recipe):
+    from soba_matchups.pipeline import NoUsableReference
+
+    assert issubclass(NoUsableReference, ValueError)  # `run` keeps exit code 2

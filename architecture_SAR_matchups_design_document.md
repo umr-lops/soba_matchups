@@ -222,7 +222,7 @@ SAR Matchup draft and do not claim compliance with it.
 | `sarmatchup:delta_diff_time_minutes_min`, `_max` | Smallest and largest signed point time difference in this Item. |
 | `sarmatchup:imagette_index` | Imagette number from the measurement file name. WV only: absent from an IW, EW or SM Item (a scene). |
 | `sarmatchup:measurement_name` | Name of the imagette NetCDF file. For an IW, EW or SM scene, the `-ocn-` NetCDF file of the archive SAFE, or `null` when the archive was not given or does not hold it. |
-| `sarmatchup:polarization` | The product's polarizations, from the SAFE name: `VV` or `HH` (single, `SV` / `SH`; every WV product), `VV+VH` or `HH+HV` (dual, `DV` / `DH`; most IW and EW products). An OCN product is processed on the co-polarization (the first one). |
+| `sarmatchup:polarization` | The product's polarizations, from the SAFE name: `VV` or `HH` (single, `SV` / `SH`; every WV product), `VV+VH` or `HH+HV` (dual, `DV` / `DH`; most IW and EW products), or the one channel of a partial dual-polarization product (`HH`, `VV`, `HV`, `VH` in the name). An OCN product is processed on the co-polarization (the first one). |
 | `sarmatchup:sar_orbit_direction` | IW, EW and SM only: the pass direction the SAR angles rest on, `ascending` or `descending` (`null` when there is none). Absent from WV Items. |
 | `sarmatchup:sar_orbit_direction_source` | IW, EW and SM only: `slice motion` (checked by the datatake's other slices) or `catalogue` (the `orbitDirection` attribute alone, unchecked; see section 8). Absent from WV Items. |
 | `sarmatchup:matchups` | Array of granule groups, section 7. |
@@ -534,7 +534,13 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 19: IW, EW and SM Items no longer carry `sarmatchup:imagette_index` nor,
+  `schema_version` is 20: only standard products are read (class `S`: `OCN__2S`, `SLC__1S`);
+  CDSE also lists annotation products (class `A`), next to their standard twins during the S1D
+  commissioning (2025-11 to 2026-04), which gave duplicated Items. Names with a partial
+  dual-polarization code (`HH`, `VV`, `HV`, `VH`: one channel of a dual-polarization acquisition,
+  e.g. `S1C_IW_OCN__2SVV_...`) are read, `sarmatchup:polarization` being that channel. A product
+  whose name cannot be decoded is listed in `discovery.safes_skipped` instead of stopping the run.
+  Since 19, IW, EW and SM Items no longer carry `sarmatchup:imagette_index` nor,
   on their points, `sar_wv_subswath` (WV only); their points give
   `sar_distance_to_along_track_edge` and `sar_distance_to_cross_track_edge` (m);
   `sarmatchup:polarization` is the product's own (`VV+VH` for an `SDV` product, was `VV`);

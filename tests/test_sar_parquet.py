@@ -120,19 +120,31 @@ def test_discovery_logs_safes_without_list_skipped_safes_and_unavailable_imagett
 
 
 def test_a_safe_with_no_imagette_list_is_logged_and_left_out(tmp_path, caplog):
+    # The real S1D annotation row, renamed as a standard product: it has no imagette list.
+    standard = {**A_CLASS, "Name": A_CLASS["Name"].replace("_OCN__2ASV_", "_OCN__2SSV_")}
     day = json.loads(A_CLASS["ContentDate"])["Start"][:10]
-    write_day(tmp_path / "parquet", day, [A_CLASS, ORDINARY])
+    write_day(tmp_path / "parquet", day, [standard, ORDINARY])
     archive = tmp_path / "esa"
     archive.mkdir()
     with caplog.at_level(logging.WARNING, logger="soba_matchups.sar_parquet"):
         products, prov = sp.discover_parquet(
             f"{day}T00:00:00Z", f"{day}T23:59:59Z", ALL_MISSIONS, tmp_path / "parquet", archive
         )
-    assert products == []  # ORDINARY is from another day, A_CLASS has no list
+    assert products == []  # ORDINARY is from another day, the renamed row has no list
     assert prov["safes_without_imagettes"] == [
-        {"safe": A_CLASS["Name"], "reason": "no imagette list in the parquet file"}
+        {"safe": standard["Name"], "reason": "no imagette list in the parquet file"}
     ]
     assert "1 SAFEs without an imagette list" in caplog.text
+
+
+def test_annotation_class_products_are_not_read(tmp_path):
+    day = json.loads(A_CLASS["ContentDate"])["Start"][:10]
+    write_day(tmp_path / "parquet", day, [A_CLASS])
+    products, prov = sp.discover_parquet(
+        f"{day}T00:00:00Z", f"{day}T23:59:59Z", ALL_MISSIONS, tmp_path / "parquet"
+    )
+    assert products == [] and prov["safes_found"] == 0
+    assert prov["safes_without_imagettes"] == [] and prov["safes_skipped"] == []
 
 
 def test_missing_columns_and_missing_files_are_reported(tmp_path):

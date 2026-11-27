@@ -22,15 +22,19 @@ logger = logging.getLogger(__name__)
 OCN_HEADER_PRECISION_SECONDS = 1
 _PATTERN = re.compile(
     r"S1[ABCD]_(?P<mode>WV|IW|EW|S[1-6])_(?P<producttype>OCN|SLC)__"
-    r"(?P<level>[12])[A-Z](?P<pol>SV|SH|DV|DH)_"
+    r"(?P<level>[12])[A-Z](?P<pol>SV|SH|DV|DH|HH|VV|HV|VH)_"
     r"\d{8}T\d{6}_\d{8}T\d{6}_\d{6}_[0-9A-F]{6}_[0-9A-F]{4}\.SAFE"
 )
 _NC_PATTERN = re.compile(
     r"(s1[abcd])-wv[12]-ocn-(vv|hh)-(\d{8}t\d{6})-(\d{8}t\d{6})-"
     r"(\d{6})-([0-9a-f]{6})-(\d{3})\.nc"
 )
-# The polarizations of a product, from the two letters of its SAFE name.
-_POLARIZATIONS = {"SV": "VV", "SH": "HH", "DV": "VV+VH", "DH": "HH+HV"}
+# The polarizations of a product, from the two letters of its SAFE name: single (SV, SH), dual
+# (DV, DH), or one channel of a dual-polarization acquisition (HH, VV, HV, VH; "partial dual").
+_POLARIZATIONS = {
+    "SV": "VV", "SH": "HH", "DV": "VV+VH", "DH": "HH+HV",
+    "HH": "HH", "VV": "VV", "HV": "HV", "VH": "VH",
+}
 _SAFE = "{http://www.esa.int/safe/sentinel-1.0}"
 _GML = "{http://www.opengis.net/gml}"
 
@@ -41,18 +45,22 @@ def decode_safe_name(name):
     An SM (StripMap) name carries its beam, S1 to S6, where the others carry the mode; the mode
     returned is then SM. polarization is the co-polarization (VV or HH), the one an OCN product
     is processed on and its WV file names carry; polarizations is the product's own, from the
-    SAFE name: VV, HH, or for a dual-polarization product (DV, DH) VV+VH or HH+HV.
+    SAFE name: VV, HH, or for a dual-polarization product (DV, DH) VV+VH or HH+HV; a product
+    holding one channel of a dual-polarization acquisition is named by that channel (HH, VV, HV,
+    VH) and its polarizations are that channel. WV products are single polarization only.
     """
     match = _PATTERN.fullmatch(name) if isinstance(name, str) else None
     if (
         match is None
         or match["level"] != {"OCN": "2", "SLC": "1"}[match["producttype"]]
-        or (match["mode"] == "WV" and match["pol"][0] == "D")
+        or (match["mode"] == "WV" and match["pol"][0] != "S")
     ):
         raise ValueError(f"Unsupported Sentinel-1 WV/IW/EW/SM SAFE name: {name!r}")
     return {
         "mode": "SM" if match["mode"][0] == "S" else match["mode"],
-        "polarization": "VV" if match["pol"][1] == "V" else "HH",
+        # The co-polarization: the transmit letter for a partial-dual name (HV -> HH), else the
+        # second letter (SV, DV -> VV).
+        "polarization": 2 * (match["pol"][0] if match["pol"][0] in "HV" else match["pol"][1]),
         "polarizations": _POLARIZATIONS[match["pol"]],
         "producttype": match["producttype"],
     }

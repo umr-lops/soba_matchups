@@ -791,3 +791,47 @@ def test_iw_points_carry_edge_distances_and_turning_scenes_are_rejected(scenes):
     rejected = {r["safe"]: r["reason"] for r in manifest["scenes_rejected_geometry"]}
     assert IW_NAME in rejected and "turning" in rejected[IW_NAME]
     assert not (result / "items" / name).exists()
+
+
+def test_footprint_tilt_tells_the_pass_direction_of_a_lone_slice():
+    assert sar_angles.footprint_tilt_direction(IW)[0] == "ascending"
+    # Mirrored east-west, the scene leans the other way: a descending pass.
+    mirrored = [(2 * 163.6 - x, y) for x, y in IW]
+    direction, margin = sar_angles.footprint_tilt_direction(mirrored)
+    assert direction == "descending" and margin > sar_angles.TILT_MARGIN_DEGREES
+    problem = sar_angles.scene_geometry_problem
+    assert problem(IW, "ascending", source="catalogue") is None
+    assert "tilt reads ascending" in problem(IW, "descending", source="catalogue")
+    # Directions from the slice motion are not second-guessed by the tilt.
+    assert problem(IW, "descending", source="slice motion") is None
+    # A square footprint aligned with the meridians leans neither way.
+    square = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    assert "ambiguous" in problem(square, "ascending", source="catalogue")
+
+
+def test_lone_slice_whose_catalogue_direction_contradicts_its_tilt_is_rejected(scenes):
+    table = pq.read_table(next((scenes.parent / "parquet").iterdir())).to_pylist()
+    table[0]["Attributes"] = attributes("descending")  # the IW scene leans ascending
+    write_day(scenes.parent / "parquet", table)
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    manifest = json.loads((scenes.parent / "iw_result" / "manifest.json").read_text())
+    rejected = {r["safe"]: r["reason"] for r in manifest["scenes_rejected_geometry"]}
+    assert "tilt reads ascending" in rejected[IW_NAME]
+    assert manifest["stac_items"] == 1  # the dateline scene only
+
+
+def test_slice_published_twice_is_one_slice_for_the_motion():
+    # The first and last slices each have a twin (same start, another checksum).
+    slices = {
+        ("S1D", "IW", "00A06B"): [
+            ("T1", "a", 17.0), ("T1", "a_twin", 17.0), ("T2", "b", 15.4),
+            ("T3", "c", 13.9), ("T3", "c_twin", 13.9),
+        ],
+        # Two copies of one slice and nothing else: a lone slice, not a turning one.
+        ("S1D", "IW", "00A0BD"): [("T1", "d", 5.0), ("T1", "d_twin", 5.0)],
+    }
+    motion = sp.slice_motion(slices)
+    assert {n: motion.get(n) for n in ("a", "a_twin", "b", "c", "c_twin")} == dict.fromkeys(
+        ("a", "a_twin", "b", "c", "c_twin"), "descending"
+    )
+    assert "d" not in motion and "d_twin" not in motion

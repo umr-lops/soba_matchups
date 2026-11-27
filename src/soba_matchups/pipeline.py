@@ -70,7 +70,8 @@ SCENE_LIMITATIONS = [
     "A scene whose along-track and cross-track edges cannot be told apart is rejected (no Item)"
     " and listed with its reason in scenes_rejected_geometry: at the turning latitude (its"
     " datatake neighbours give no direction), a footprint without four corners, no pass"
-    " direction, or a footprint s1-geometry reads in another direction than the pass.",
+    " direction, a lone slice (direction from the catalogue alone) whose footprint tilt gives the"
+    " other direction or is ambiguous, or a footprint s1-geometry reads in another direction.",
     "sar_distance_to_along_track_edge and sar_distance_to_cross_track_edge are great-circle"
     " distances (sphere of radius 6371008.8 m) to the footprint's straight-lined edges.",
     "The last slice of a datatake past the turning latitude takes its direction from its previous"
@@ -249,7 +250,10 @@ def run(recipe):
             continue
         if recipe.sar_mode != "WV":
             problem = scene_geometry_problem(
-                product.get("SceneRing"), product.get("OrbitDirection"), product.get("Turning")
+                product.get("SceneRing"),
+                product.get("OrbitDirection"),
+                product.get("Turning"),
+                product.get("OrbitDirectionSource"),
             )
             if problem:
                 scenes_rejected.append({"safe": product["Name"], "reason": problem})

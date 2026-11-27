@@ -279,19 +279,27 @@ def slice_motion(slices):
     SLICE_MOTION_DEGREES; near the turning latitude it gets none. On S1B IW/EW, January 2021,
     this direction matched the OCN files on all 2,569 products that had one; on S1A/S1C, April
     2025, on all but 4 of 1,188, where the catalogue orbitDirection was wrong on 82.
+
+    Products with the same start (one slice published twice, under two checksums) are one
+    slice: the steps are taken between distinct starts, at their mean latitude.
     """
     motion = {}
     for members in slices.values():
-        members = sorted(members)
-        for i, (_, name, lat) in enumerate(members):
+        slots = {}
+        for start, name, lat in members:
+            slots.setdefault(start, []).append((name, lat))
+        order = sorted(slots)
+        lats = [float(np.mean([lat for _, lat in slots[s]])) for s in order]
+        for i, start in enumerate(order):
             steps = []
             if i > 0:
-                steps.append(lat - members[i - 1][2])
-            if i + 1 < len(members):
-                steps.append(members[i + 1][2] - lat)
+                steps.append(lats[i] - lats[i - 1])
+            if i + 1 < len(order):
+                steps.append(lats[i + 1] - lats[i])
             steps = [s for s in steps if abs(s) > SLICE_MOTION_DEGREES]
             if steps and all((s > 0) == (steps[0] > 0) for s in steps):
-                motion[name] = "ascending" if steps[0] > 0 else "descending"
+                for name, _ in slots[start]:
+                    motion[name] = "ascending" if steps[0] > 0 else "descending"
     return motion
 
 
@@ -541,7 +549,10 @@ def discover_parquet(
         # A slice with neighbours but no direction from them is at the turning latitude: its
         # along-track and cross-track edges cannot be told apart, and the run rejects it.
         turning = {
-            name for members in slices.values() if len(members) > 1 for _, name, _ in members
+            name
+            for members in slices.values()
+            if len({start for start, _, _ in members}) > 1
+            for _, name, _ in members
         } - set(motion)
         for product in products:
             product["Turning"] = product["Name"] in turning

@@ -362,18 +362,35 @@ Everything comes from the daily parquet rows (`Name`, `GeoFootprint`, `Attribute
   cannot be told apart gives no Item, and is listed with its reason in the manifest's
   `scenes_rejected_geometry`: at the turning latitude, a footprint that is not four corners
   (for example clipped by the catalogue at 85.05° N), no pass direction (a lone slice with no
-  catalogue direction), or a footprint `s1-geometry` reads in another direction than the pass
-  once its corners are in the library's order (some SM scenes).
+  catalogue direction), a lone slice whose footprint tilt contradicts the catalogue direction or
+  is ambiguous, or a footprint `s1-geometry` reads in another direction than the pass once its
+  corners are in the library's order (some SM scenes).
+- **Footprint tilt (lone slices):** the range lines follow the ground track, whose bearing
+  (`heading_from_lat` at the footprint's mean latitude) leans one way on an ascending pass and
+  the other way on a descending one, about 24° apart at low latitude. The direction is the one
+  whose bearing (modulo 180°) an edge follows best; when the two fits differ by less than 5° the
+  tilt is ambiguous. Against the slice motion (S1A/S1C/S1D, 2025-04-10 → 17 and 2026-11-01 →
+  08) it agreed on 99.6% of the unambiguous IW products (2% ambiguous) and 95% of EW ones (7%
+  ambiguous). On the lone slices of those weeks it agreed with the catalogue on 264 of 264
+  unambiguous IW ones, and disagreed on 17 of 123 EW ones: such checks reject about 0.1% of
+  IW products and 1 – 2% of EW ones.
+- **How much is rejected:** on those two weeks, every reason together rejected 0.7% of IW
+  products (21 of 3,171 and 22 of 3,053) and 5.9% of EW ones (69 of 1,182, 62 of 1,048), nearly
+  all poleward of 70°: mostly footprints `s1-geometry` reads in another direction (IW 0.5%,
+  EW 3%), then lone slices (IW 0.1%, EW 1.6 – 2%) and the turning latitude (IW < 0.1%,
+  EW 0.8 – 1.1%). Only scenes with candidate cells are tested in a run.
+- **Slices published twice:** ESA publishes some slices twice (same start, two checksums). They
+  count as one slice for the motion, at their mean latitude; otherwise a twin at the same
+  latitude would leave the first or last slice of a datatake without a direction.
   - The manifest counts the first case (`discovery.orbit_direction_from_slices`), lists every
     product whose catalogue direction disagreed (`discovery.orbit_direction_corrected`) and every
     product whose direction is the catalogue's alone (`discovery.orbit_direction_from_catalogue`).
   - Each Item gives `sarmatchup:sar_orbit_direction` and `sarmatchup:sar_orbit_direction_source`;
     `sar_metadata.json` gives each product's `OrbitDirection` and `OrbitDirectionSource`.
-  - **Limitation:** a direction from the catalogue alone is not checked. If it is wrong, near
-    and far range swap: incidence is wrong by several degrees and the heading by about 160°,
-    with no warning in `sar_angles.errors`, because the corners are ordered for that direction
-    and the library reads it back. Filter on `sar_orbit_direction_source` where this matters
-    (the catalogue is least reliable on S1C EW).
+  - A direction from the catalogue alone is checked against the footprint tilt (below): if it
+    were wrong, near and far range would swap, incidence would be wrong by several degrees and
+    the heading by about 160°, and the library would not notice, since the corners are ordered
+    for that direction and it reads it back. The catalogue is least reliable on S1C EW.
   - The last slice of a datatake just past the turning latitude has only its previous step,
     which can be on the other side of the turn, so it can take the wrong direction.
   - Checked against the OCN files' `owiHeading`. On S1B IW/EW, January 2021, the slice motion

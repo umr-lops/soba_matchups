@@ -256,7 +256,7 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     assert main(["run", "--recipe", str(scenes)]) == 0
     result = scenes.parent / "iw_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 21
+    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 22
     assert manifest["rules"]["imagette_mapping"] == sp.SCENE_MAPPING
     assert manifest["sar_angles"]["errors"] == []
     names = sorted(p.name for p in (result / "items").iterdir())
@@ -910,3 +910,27 @@ def test_grd_recipe_rules(local_recipe, scenes):
     scenes.write_text(scenes.read_text() + 'sar_archive_layout = "provider"\n')
     with pytest.raises(ValueError, match="provider"):
         load_recipe(scenes)
+
+
+SLC_NAME = IW_NAME.replace("_OCN__2SDV_", "_SLC__1SDV_")
+
+
+def test_iw_slc_run_writes_one_item_per_scene_linking_the_safe_folder(scenes):
+    """IW SLC scenes: one Item per SLC SAFE, its link the SAFE folder (several sub-swath
+    images per polarization); a SAFE not in the archive is matched and listed unavailable."""
+    table = pq.read_table(next((scenes.parent / "parquet").iterdir())).to_pylist()
+    slc = {**table[0], "Name": SLC_NAME}
+    absent = {**table[1], "Name": table[1]["Name"].replace("_OCN__2SDV_", "_SLC__1SDV_")}
+    write_day(scenes.parent / "parquet", [*table, slc, absent])
+    safe = scenes.parent / "esa/sentinel-1a/L1/IW/S1A_IW_SLC__1S/2026/180" / SLC_NAME
+    (safe / "measurement").mkdir(parents=True)
+    scenes.write_text(scenes.read_text() + 'product_type = "SLC"\n')
+    assert main(["run", "--recipe", str(scenes)]) == 0
+    result = scenes.parent / "iw_result"
+    manifest = json.loads((result / "manifest.json").read_text())
+    assert manifest["stac_items"] == 2 and manifest["imagettes_unavailable"] == 1
+    name = SLC_NAME.removesuffix(".SAFE") + "__KNMI_HSCAT_HY2B_25KM.json"
+    item = json.loads((result / "items" / name).read_text())
+    assert item["properties"]["sarmatchup:sar_product_type"] == "SLC"
+    assert item["assets"]["sar"]["href"] == safe.as_uri()
+    assert "sarmatchup:imagette_index" not in item["properties"]

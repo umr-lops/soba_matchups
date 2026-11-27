@@ -45,14 +45,16 @@ OPTIONAL_SCENE_COLUMNS = ["Attributes"]
 CUT_EDGE_TOLERANCE = 1e-6
 # Largest latitude difference, in degrees, between the two ends of a cut shared by two halves.
 CUT_LATITUDE_TOLERANCE = 1e-3
-# The SAFE name each run reads, per mode and product type: L2 OCN for every mode, L1 SLC for WV.
+# The SAFE name each run reads, per mode and product type: L2 OCN and L1 SLC for every mode, L1
+# GRD for IW, EW and SM.
 # SM names carry the beam (S1 to S6) where the others carry the mode.
 # Standard products only (class S). CDSE also lists annotation (A), calibration (C) and noise (N)
 # products, the annotation ones next to their standard twins during the S1D commissioning.
 # GRD: any resolution (H, M, F); its cloud-optimized copies (..._COG.SAFE) are left out.
 _PRODUCT_TOKENS = {"OCN": "OCN__2S", "SLC": "SLC__1S", "GRD": "GRD[HMF]_1S"}
 PRODUCT_TYPES = {
-    "WV": ("OCN", "SLC"), "IW": ("OCN", "GRD"), "EW": ("OCN", "GRD"), "SM": ("OCN", "GRD"),
+    "WV": ("OCN", "SLC"),
+    "IW": ("OCN", "SLC", "GRD"), "EW": ("OCN", "SLC", "GRD"), "SM": ("OCN", "SLC", "GRD"),
 }
 # Archive level and folder suffix of each product type.
 _ARCHIVE_FOLDER = {
@@ -327,8 +329,9 @@ def _scene(row, archive_root, layout="mpc"):
     """Build the product record of one IW, EW or SM OCN or GRD row: one scene and its
     availability.
 
-    An OCN scene links its -ocn- measurement file. A GRD SAFE holds one image per polarization,
-    so its link is the SAFE folder and it is available when the archive holds that folder.
+    An OCN scene links its -ocn- measurement file. A GRD or SLC SAFE holds several images (one
+    per polarization, and for SLC per sub-swath), so its link is the SAFE folder and it is
+    available when the archive holds that folder.
     """
     name = row["Name"]
     content = _loads(row["ContentDate"])
@@ -349,7 +352,9 @@ def _scene(row, archive_root, layout="mpc"):
         if folder is not None and (folder / "measurement").is_dir()
         else None
     )
-    grd = name[7:10] == "GRD"
+    # A Level-1 SAFE (GRD, SLC) holds several images (polarizations, IW/EW sub-swaths): its
+    # link is the SAFE folder.
+    grd = name[7:10] in ("GRD", "SLC")
     measurement = _scene_measurement(files) if files is not None and not grd else None
     if folder is None:
         href = name
@@ -467,7 +472,7 @@ def discover_parquet(
     """Read the daily parquet files of the covered days and return the products to match.
 
     mode is WV (one record per imagette) or IW, EW, SM (one record per product, the scene).
-    product_type is OCN, or SLC for WV: a run reads one type and never mixes them.
+    product_type is OCN, SLC, or GRD for IW, EW and SM: a run reads one type and never mixes them.
     Products with no imagette list, and products whose polygons and imagettes disagree (or, for a
     scene, whose footprint is not one polygon), are left out and named in the returned
     provenance. Measurement files absent from the archive are kept, flagged unavailable and named

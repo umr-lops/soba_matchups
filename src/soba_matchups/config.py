@@ -111,8 +111,8 @@ def load_recipe(path, day=None):
     # The SAR metadata comes from the archive, the daily parquet files, or both.
     if not optional & set(data):
         raise ValueError("Recipe needs sar_archive_root, sar_parquet_root, or both")
-    # One run reads one SAR product type: WV L2 OCN (the default) or WV L1 SLC. SLC is read from
-    # the daily parquet files only: the archive source reads the OCN NetCDF headers.
+    # One run reads one SAR product type: L2 OCN (the default), L1 SLC or L1 GRD. SLC and GRD are
+    # read from the daily parquet files only: the archive source reads the OCN NetCDF headers.
     data.setdefault("product_type", "OCN")
     if data["product_type"] not in SAR_PRODUCT_TYPES:
         raise ValueError(f"product_type must be one of {list(SAR_PRODUCT_TYPES)}")
@@ -133,10 +133,8 @@ def load_recipe(path, day=None):
     # given, is only asked whether each product's measurement file exists.
     if mode != "WV" and "sar_parquet_root" not in data:
         raise ValueError(f"sar_mode {mode!r} needs sar_parquet_root (the daily parquet files)")
-    # SLC is read per WV imagette; IW, EW and SM scenes are OCN products only.
-    # SLC is read per WV imagette; GRD per IW, EW or SM scene (WV has no GRD product).
-    if mode != "WV" and data["product_type"] == "SLC":
-        raise ValueError("product_type 'SLC' is only read for sar_mode WV")
+    # SLC is read per WV imagette or per IW, EW or SM scene; GRD per IW, EW or SM scene (WV has
+    # no GRD product).
     if mode == "WV" and data["product_type"] == "GRD":
         raise ValueError("product_type 'GRD' is only read for sar_mode IW, EW or SM")
     # Where the SAFEs of sar_archive_root are filed (sar_parquet.ARCHIVE_LAYOUTS). The provider

@@ -1,7 +1,7 @@
 """Strict standalone TOML recipes; paths are relative to the recipe file."""
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 import math
 from pathlib import Path
 import tomllib
@@ -40,6 +40,8 @@ SWOT_RELEASES = ("D0", "D2")
 # Sentinel-1 acquisition modes a run can match, one per run. WV is matched per imagette; IW, EW
 # and SM (StripMap, beams S1 to S6) per scene (one OCN product), from the daily parquet files only.
 SAR_MODES = ("WV", "IW", "EW", "SM")
+# Placeholder of a per-day recipe's output_dir (see batch.py): replaced by the day, YYYY-MM-DD.
+DAY_FIELD = "{day}"
 
 
 @dataclass(frozen=True)
@@ -69,13 +71,28 @@ class Recipe:
         return {k: str(v) if isinstance(v, (Path, date)) else v for k, v in asdict(self).items()}
 
 
-def load_recipe(path):
-    """Load and strictly validate a TOML recipe; relative paths resolve against its folder."""
+def load_recipe(path, day=None):
+    """Load and strictly validate a TOML recipe; relative paths resolve against its folder.
+
+    With ``day`` (a date), the recipe is a per-day template: ``output_dir`` must contain
+    ``{day}``, replaced by the day (YYYY-MM-DD), and the run covers that day alone. Without
+    ``day``, an ``output_dir`` holding ``{day}`` is refused.
+    """
     path = Path(path).resolve()
     if path.suffix != ".toml":
         raise ValueError("Recipe must be a .toml file")
     with path.open("rb") as stream:
         data = tomllib.load(stream)
+    output = data.get("output_dir")
+    per_day = isinstance(output, str) and DAY_FIELD in output
+    if per_day and day is None:
+        raise ValueError(f"output_dir holds {DAY_FIELD}: run the recipe day by day (run-day)")
+    if day is not None:
+        if not per_day:
+            raise ValueError(f"run-day needs a per-day recipe: output_dir must contain {DAY_FIELD}")
+        data["start_date"] = day.isoformat()
+        data["stop_date"] = (day + timedelta(days=1)).isoformat()
+        data["output_dir"] = output.replace(DAY_FIELD, day.isoformat())
     # Reject unknown keys and missing required keys.
     optional = {"sar_archive_root", "sar_parquet_root"}
     # The distance-to-coast grid is a file, and a run goes on without it. The CMEMS in situ root

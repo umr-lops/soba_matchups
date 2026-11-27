@@ -78,6 +78,11 @@ day, SAR product type and SAR mode:
 scatterometer family (`hscat`, `ascat`) or the altimeter product (`cci`, `cmems`).
 `<product_type>` and `<mode>` are the recipe `product_type` and `sar_mode` in lower case.
 
+Outside Airflow, a per-day recipe writes the same tree: its `output_dir` holds `{day}`
+(e.g. `<root>/swot/d2/{day}/ocn/iw`), `soba_matchups listing` writes one `run-day` line per day
+whose folder does not exist yet, and each line runs one day (a Slurm job-array task, see
+`scripts/slurm/`). A day without any reference file writes nothing and stays in the next listing.
+
 ## 3. File naming
 
 ```

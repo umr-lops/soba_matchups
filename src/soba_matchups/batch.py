@@ -14,7 +14,7 @@ import shutil
 import tomllib
 
 from soba_matchups.config import load_recipe
-from soba_matchups.pipeline import ADAPTERS, run
+from soba_matchups.pipeline import ADAPTERS, NoUsableReference, run
 
 
 def recipe_range(recipe_path):
@@ -51,8 +51,9 @@ def run_day(recipe_path, day, overwrite=False):
     """Run a per-day recipe for one day; return the manifest, or None when the day is skipped.
 
     A day whose output exists is skipped, unless overwrite: the old output is then kept aside
-    and put back if the new run fails. A day for which the adapter finds no reference file is
-    skipped too, with its reason (nothing is written), so that a later listing offers it again;
+    and put back if the new run fails. A day for which the adapter finds no reference file, or
+    only unusable ones (an empty SWOT granule), is skipped too, with its reason (nothing is
+    written, an old output is put back), so that a later listing offers it again;
     check a recipe with ``validate`` first, since a wrong reference_root skips every day.
     """
     recipe = load_recipe(recipe_path, day=day)
@@ -70,11 +71,14 @@ def run_day(recipe_path, day, overwrite=False):
         output.rename(aside)
     try:
         manifest = run(recipe)
-    except BaseException:
+    except BaseException as exc:
         if aside.exists():
             if output.exists():
                 shutil.rmtree(output)
             aside.rename(output)
+        if isinstance(exc, NoUsableReference):
+            print(f"soba_matchups: {day} skipped: {exc}")
+            return None
         raise
     if aside.exists():
         shutil.rmtree(aside)

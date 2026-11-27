@@ -109,6 +109,10 @@ logger = logging.getLogger(__name__)
 ADAPTERS = {"ascat": scat, "hscat": scat, "karin": swot, "alti": alti, "buoy": buoy}
 
 
+class NoUsableReference(ValueError):
+    """Every reference file of the requested days was skipped (empty or unreadable)."""
+
+
 def reference_inputs(recipe, skipped=None):
     """Read and validate every reference granule for the requested days (stop_date exclusive).
 
@@ -140,8 +144,9 @@ def reference_inputs(recipe, skipped=None):
         ref["identity"] = identity
         references.append(ref)
     if not references:
-        raise ValueError(
+        raise NoUsableReference(
             f"No usable reference file for the requested days under {recipe.reference_root}"
+            + (f" ({len(skipped)} skipped)" if skipped else "")
         )
     return references
 

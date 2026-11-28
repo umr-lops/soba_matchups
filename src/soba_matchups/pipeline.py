@@ -81,7 +81,10 @@ SCENE_LIMITATIONS = [
     " elevation from the four corners in the library's standard order for that direction (for"
     " SM the beam's specified bands). Incidence and elevation are left null when the library"
     " reads another direction from those corners, cannot invert them, measures a swath more than"
-    " 10% off the scene's width, or the footprint is not four corners. Without any direction the"
+    " 10% off the scene's width, or the footprint is not four corners. A footprint whose width is"
+    " just outside the orbit-altitude band gets s1-geometry's coarse estimate (satellite"
+    " distance clamped to the band; sar_angles_coarse true, products in sar_angles.coarse)."
+    " Without any direction the"
     " footprint is read as it is, and a turning reading gives no angles. All those products are"
     " listed in sar_angles.errors.",
     "daily_parquet_files_v2 does not list SM products yet (its producer drops them): an SM run"
@@ -213,6 +216,7 @@ def run(recipe):
         verify_inputs = verify_local_inputs
     items, diagnostics = [], []
     angle_errors = []
+    angle_coarse = []
     # IW, EW and SM scenes with candidate cells whose edges cannot be told apart: no Item.
     scenes_rejected = []
     seen_points = set()
@@ -369,6 +373,9 @@ def run(recipe):
             )
         if error:
             angle_errors.append({"safe": product["Name"], "error": error})
+        coarse = sum(bool(point.get("sar_angles_coarse")) for point in flat)
+        if coarse:
+            angle_coarse.append({"safe": product["Name"], "points": coarse})
         for imagette, groups in pending:
             items.append(
                 imagette_item(product, imagette, fields, groups, recipe.time_tolerance_minutes)
@@ -380,7 +387,7 @@ def run(recipe):
             raise ValueError(f"Input changed during processing: {ref['path']}")
     # The manifest records the recipe, inputs, counts, matching rules and known limitations.
     manifest = {
-        "schema_version": 22,
+        "schema_version": 23,
         "status": "success" if items else "no_matches",
         "created_utc": iso(datetime.now(timezone.utc)),
         "library": "soba_matchups",
@@ -408,6 +415,7 @@ def run(recipe):
             "library": "s1-geometry",
             "version": library_version(),
             "errors": angle_errors,
+            "coarse": angle_coarse,
         },
         "reference_files": len(refs),
         "reference_files_skipped": skipped_references,

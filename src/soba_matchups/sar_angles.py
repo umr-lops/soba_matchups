@@ -33,6 +33,12 @@ SCENE_FIELDS = {
     "sar_distance_to_cross_track_edge": (
         "m, great-circle distance to the nearer cross-track edge (first or last line)"
     ),
+    "sar_angles_coarse": (
+        "true when incidence and elevation are s1-geometry's coarse estimate: the footprint"
+        " width is just outside the orbit-altitude band and the satellite distance is clamped to"
+        " it (about 0.06 degree of incidence per km); false for a regular estimate; null without"
+        " angles"
+    ),
 }
 EARTH_RADIUS_M = 6371008.8
 # WV points also say which subswath the imagette is on; IW, EW and SM points do not carry the
@@ -398,7 +404,7 @@ def add_scene_angles(name, corners, mode, points, orbit_direction=None):
             point["sar_distance_to_cross_track_edge"] = _finite(across)
         try:
             angles = estimate_incidence_elevation(
-                ring, ref_lon=lon, ref_lat=point["ref_lat"], mode=mode, **beam
+                ring, ref_lon=lon, ref_lat=point["ref_lat"], mode=mode, coarse=True, **beam
             )
         except Exception as exc:  # the library raises ValueError
             text = f"{type(exc).__name__}: {exc}"
@@ -412,6 +418,7 @@ def add_scene_angles(name, corners, mode, points, orbit_direction=None):
             continue
         point["sar_incidence_angle"] = _finite(angles.incidence_deg)
         point["sar_elevation_angle"] = _finite(angles.elevation_deg)
+        point["sar_angles_coarse"] = bool(angles.coarse)
     problems += [f"{n} of {len(points)} points: {t}" for t, n in failures.items()]
     if wrong_edges:
         problems.append(

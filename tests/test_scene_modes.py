@@ -250,13 +250,31 @@ def test_scene_angles_follow_the_iw_and_ew_models_and_skip_outside_points():
     box_ring = [(0, 0), (1, 0), (1, 1), (0, 1)]
     text = sar_angles.add_scene_angles("box", box_ring, "IW", small, "ascending")
     assert text and small[0]["sar_incidence_angle"] is None
+    assert small[0]["sar_angles_coarse"] is None
+    assert points[0]["sar_angles_coarse"] is False
+
+
+# S1A_IW_GRDH_1SSH_20240210T141522_20240210T141547_052497_065975_BB3A.SAFE (catalogue corners,
+# ascending, ~67 S): its 250.9 km width is just below s1-geometry's IW orbit-altitude band.
+POLAR_TURN_IW = [[88.143066, -68.73497], [93.03759, -67.410416], [90.656868, -66.19561],
+                 [85.893784, -67.45388]]
+
+
+def test_a_footprint_just_outside_the_altitude_band_gets_coarse_angles():
+    across = [{"ref_lon": lon, "ref_lat": lat}
+              for lon, lat in ((87.0, -67.6), (89.4, -67.45), (92.0, -67.3))]
+    assert sar_angles.add_scene_angles("polar", POLAR_TURN_IW, "IW", across, "ascending") is None
+    near, middle, far = (p["sar_incidence_angle"] for p in across)
+    assert 29 < near < 34 < middle < 41 < far < 46.5
+    assert all(p["sar_angles_coarse"] is True for p in across)
+    assert all(p["sar_elevation_angle"] is not None for p in across)
 
 
 def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     assert main(["run", "--recipe", str(scenes)]) == 0
     result = scenes.parent / "iw_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 22
+    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 23
     assert manifest["rules"]["imagette_mapping"] == sp.SCENE_MAPPING
     assert manifest["sar_angles"]["errors"] == []
     names = sorted(p.name for p in (result / "items").iterdir())

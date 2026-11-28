@@ -33,6 +33,14 @@ SCENE_FIELDS = {
     "sar_distance_to_cross_track_edge": (
         "m, great-circle distance to the nearer cross-track edge (first or last line)"
     ),
+    "sar_incidence_angle_uncertainty": (
+        "degrees: s1-geometry's empirical 1-sigma-like uncertainty of sar_incidence_angle (68th"
+        " percentile of the difference to ESA L2 OCN angles, by latitude band, beyond the far"
+        " range line, coarse estimate)"
+    ),
+    "sar_elevation_angle_uncertainty": (
+        "degrees: s1-geometry's empirical 1-sigma-like uncertainty of sar_elevation_angle"
+    ),
     "sar_angles_coarse": (
         "true when incidence and elevation are s1-geometry's coarse estimate: the footprint"
         " width is just outside the orbit-altitude band and the satellite distance is clamped to"
@@ -419,6 +427,8 @@ def add_scene_angles(name, corners, mode, points, orbit_direction=None):
         point["sar_incidence_angle"] = _finite(angles.incidence_deg)
         point["sar_elevation_angle"] = _finite(angles.elevation_deg)
         point["sar_angles_coarse"] = bool(angles.coarse)
+        point["sar_incidence_angle_uncertainty"] = _finite(angles.incidence_uncertainty_deg)
+        point["sar_elevation_angle_uncertainty"] = _finite(angles.elevation_uncertainty_deg)
     problems += [f"{n} of {len(points)} points: {t}" for t, n in failures.items()]
     if wrong_edges:
         problems.append(

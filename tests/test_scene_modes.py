@@ -252,6 +252,9 @@ def test_scene_angles_follow_the_iw_and_ew_models_and_skip_outside_points():
     assert text and small[0]["sar_incidence_angle"] is None
     assert small[0]["sar_angles_coarse"] is None
     assert points[0]["sar_angles_coarse"] is False
+    assert 0 < points[0]["sar_incidence_angle_uncertainty"] < 1.5
+    assert 0 < points[0]["sar_elevation_angle_uncertainty"] < 1.5
+    assert small[0]["sar_incidence_angle_uncertainty"] is None
 
 
 # S1A_IW_GRDH_1SSH_20240210T141522_20240210T141547_052497_065975_BB3A.SAFE (catalogue corners,
@@ -267,6 +270,9 @@ def test_a_footprint_just_outside_the_altitude_band_gets_coarse_angles():
     near, middle, far = (p["sar_incidence_angle"] for p in across)
     assert 29 < near < 34 < middle < 41 < far < 46.5
     assert all(p["sar_angles_coarse"] is True for p in across)
+    # coarse estimates carry s1-geometry's larger uncertainty
+    assert all(p["sar_incidence_angle_uncertainty"] > 3 for p in across)
+    assert all(p["sar_elevation_angle_uncertainty"] > 3 for p in across)
     assert all(p["sar_elevation_angle"] is not None for p in across)
 
 
@@ -274,7 +280,7 @@ def test_iw_run_writes_one_item_per_scene_with_angles(scenes):
     assert main(["run", "--recipe", str(scenes)]) == 0
     result = scenes.parent / "iw_result"
     manifest = json.loads((result / "manifest.json").read_text())
-    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 23
+    assert manifest["sar_mode"] == "IW" and manifest["schema_version"] == 24
     assert manifest["rules"]["imagette_mapping"] == sp.SCENE_MAPPING
     assert manifest["sar_angles"]["errors"] == []
     names = sorted(p.name for p in (result / "items").iterdir())

@@ -539,7 +539,10 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 23: IW, EW and SM points carry `sar_angles_coarse`, true when the
+  `schema_version` is 24: IW, EW and SM points also carry `sar_incidence_angle_uncertainty`
+  and `sar_elevation_angle_uncertainty` (degrees), s1-geometry's empirical uncertainty of the
+  angles (68th percentile of the difference to ESA L2 OCN angles). Since 23, IW, EW and SM
+  points carry `sar_angles_coarse`, true when the
   footprint width is just outside s1-geometry's orbit-altitude band and the angles are its
   coarse estimate (satellite distance clamped to the band); those products are listed in
   `sar_angles.coarse`. Since 22, `product_type = "SLC"` also matches IW, EW and SM SLC scenes, one

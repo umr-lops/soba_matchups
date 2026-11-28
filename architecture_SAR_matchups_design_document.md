@@ -539,7 +539,10 @@ In a container, bind the KNMI tree at its real path and use that path as
   (`NDBC station in NCEI`, `TAO site`, `TAO site T0N140W (WMO number)`, ...), the CMEMS
   platforms read from another region, and the files the CMEMS index lists but the disk lacks.
   Files with no wind record in the requested days are in `reference_files_skipped`.
-  `schema_version` is 22: `product_type = "SLC"` also matches IW, EW and SM SLC scenes, one
+  `schema_version` is 23: IW, EW and SM points carry `sar_angles_coarse`, true when the
+  footprint width is just outside s1-geometry's orbit-altitude band and the angles are its
+  coarse estimate (satellite distance clamped to the band); those products are listed in
+  `sar_angles.coarse`. Since 22, `product_type = "SLC"` also matches IW, EW and SM SLC scenes, one
   Item per SLC SAFE linking its SAFE folder (MPC cache), like GRD. Since 21,
   `product_type = "GRD"` matches the IW, EW and SM Level-1 GRD
   scenes (GRDH, GRDM, GRDF, standard class; the `_COG.SAFE` copies are not read), one Item

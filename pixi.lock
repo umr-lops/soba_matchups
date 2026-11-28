@@ -145,11 +145,11 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/51/39/1f5d8c8877a0fa327db959c19341d4be61660de1ab6b7391f9eb805bcd67/pytest-9.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/56/43/4ca9e49d27a1fcf6bece6f6aec0ea46bb9112489b93d4b688fb415457bdb/iniconfig-2.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5b/be/373cc7341f53bfd3acba3e5db62433fd960a45fcf73ad64a5f4d27e74910/platformdirs-4.14.8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/61/0d/724cdce310e6d2998b17385f157bf3da182584801ef3005316ad9e560328/s1_geometry-2026.11.28-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/68/66/870b527908a06c7ec0e91239bd2c4d0bb22921efd4f915428b4e47d461a6/filelock-4.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/85/11/044d1ae1b4ec0d7af88ee5bc91e081be1022533032b906a7bdabdbb60977/pyproject_hooks-1.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/94/80/1d27f7084b983b7cfd1fb35e65a38276d9eddfdcdabc0922bb26cf9521bc/pyyaml-6.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/a1/47/898535a1f92e9d1ab3a597a80a6f15ea0070e151a6b76cc57fe7853c8dc3/s1_geometry-2026.11.20.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/9b/9fb3585dabcd73a1b2a6267f63f62649347c9e6d072c9fde365b105abb2c/build-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c1/2b/238f02a4927fa2e27aa995371d240a468b52e42eae44a678434aff736b38/distlib-0.4.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c4/34/65e66e8c384dc08f0e58c474587c05c4bc952f60facd8a15e80748118bd1/python_discovery-1.9.6-py3-none-any.whl
@@ -343,7 +343,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.9.0-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: https://files.pythonhosted.org/packages/a1/47/898535a1f92e9d1ab3a597a80a6f15ea0070e151a6b76cc57fe7853c8dc3/s1_geometry-2026.11.20.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/61/0d/724cdce310e6d2998b17385f157bf3da182584801ef3005316ad9e560328/s1_geometry-2026.11.28-py3-none-any.whl
   slurm:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -477,8 +477,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.9.0-pyh5ded981_0.conda
       - pypi: ./
       - pypi: https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/61/0d/724cdce310e6d2998b17385f157bf3da182584801ef3005316ad9e560328/s1_geometry-2026.11.28-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/f0/eb22f1d99a39591609528d562265bc7eec486904a5b739bd6e433cf86e40/turboblast-2026.10.7-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/a1/47/898535a1f92e9d1ab3a597a80a6f15ea0070e151a6b76cc57fe7853c8dc3/s1_geometry-2026.11.20.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a4/42/3b121b42b114919ffc6195a81c1c7065a465f62f46477fbdb87a07699e51/cloudpickle-3.1.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ea/bb/711e1c2ebd18a21202c972dd5d5c8e09a921f2d3560e3a53d6350c808ab7/submitit-1.5.4-py3-none-any.whl
@@ -2907,7 +2907,7 @@ packages:
   - netcdf4>=1.7,<2
   - numpy>=1.26,<3
   - pyarrow>=15
-  - s1-geometry>=2026.11.20
+  - s1-geometry>=2026.11.28
   - shapely>=2
   - xarray>=2024.1
   - build==1.6.1 ; extra == 'dev'
@@ -2982,6 +2982,22 @@ packages:
   version: 4.14.8
   sha256: 1e34af590de4d978631b751eb2202f2fee4497537a17c1720b12fcf57b331392
   requires_python: '>=3.11'
+- pypi: https://files.pythonhosted.org/packages/61/0d/724cdce310e6d2998b17385f157bf3da182584801ef3005316ad9e560328/s1_geometry-2026.11.28-py3-none-any.whl
+  name: s1-geometry
+  version: 2026.11.28
+  sha256: 37ebb7186a77bf6e155b0f2e6be783c008465551b51883ad4f354915938f75e2
+  requires_dist:
+  - numpy
+  - furo ; extra == 'docs'
+  - myst-parser ; extra == 'docs'
+  - sphinx ; extra == 'docs'
+  - pandas ; extra == 'parquet'
+  - pyarrow ; extra == 'parquet'
+  - pandas ; extra == 'test'
+  - pyarrow ; extra == 'test'
+  - pytest ; extra == 'test'
+  - pytest-cov ; extra == 'test'
+  requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/68/66/870b527908a06c7ec0e91239bd2c4d0bb22921efd4f915428b4e47d461a6/filelock-4.3.0-py3-none-any.whl
   name: filelock
   version: 4.3.0
@@ -3012,22 +3028,6 @@ packages:
   - submitit
   - tqdm
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/a1/47/898535a1f92e9d1ab3a597a80a6f15ea0070e151a6b76cc57fe7853c8dc3/s1_geometry-2026.11.20.1-py3-none-any.whl
-  name: s1-geometry
-  version: 2026.11.20.1
-  sha256: 156a5d7407e3a9dd47178ea3c073a891630ed899707b3e8fd8664fadaf571726
-  requires_dist:
-  - numpy
-  - furo ; extra == 'docs'
-  - myst-parser ; extra == 'docs'
-  - sphinx ; extra == 'docs'
-  - pandas ; extra == 'parquet'
-  - pyarrow ; extra == 'parquet'
-  - pandas ; extra == 'test'
-  - pyarrow ; extra == 'test'
-  - pytest ; extra == 'test'
-  - pytest-cov ; extra == 'test'
-  requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/a4/42/3b121b42b114919ffc6195a81c1c7065a465f62f46477fbdb87a07699e51/cloudpickle-3.1.3-py3-none-any.whl
   name: cloudpickle
   version: 3.1.3
